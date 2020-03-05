@@ -1,9 +1,7 @@
 use std::fs::File;
 use std::f64;
 
-pub trait EuclideanDistance {
-    fn distance(&self, other: &Self) -> f64;
-}
+use crate::euclidean_distance::EuclideanDistance;
 
 pub trait UnsupervisedClassifier<T: EuclideanDistance> {
     // trains the classifier using "data"
