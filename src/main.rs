@@ -15,6 +15,9 @@ use crate::classifier::{
     TrainingError
 };
 
+static INPUT_FILE: &'static str = "./data/easy_clusters_rand";
+static OUTPUT_FILE: &'static str = "./data/clustered_data_rand.csv";
+
 fn point_from_vec(buff: &Vec<u8>) -> Result<Point, TrainingError> {
     // let buf = buff.into_bytes();
     let mut val = 0.0;
@@ -55,7 +58,7 @@ fn main() {
     let p2 = Point::new(1.5, 3.0);
     let cats = vec![Point::new(5.1, 10.2), Point::new(1.0, 3.0)];
     let mut classifier = KMeans::<Point>::new(15);
-    let mut f = match File::open("./easy_clusters") {
+    let mut f = match File::open(INPUT_FILE) {
         Ok(f) => f,
         Err(e) => {
             println!("Couldn't open file containing data");
@@ -78,7 +81,7 @@ fn main() {
     println!("{:?}", cats);
 
     // print out a csv file containing the data and their clusters
-    let mut f_out = match File::create("./clustered_data.csv") {
+    let mut f_out = match File::create(OUTPUT_FILE) {
         Ok(f) => f,
         Err(e) => {
             println!("Couldn't create clustered data file");
@@ -86,7 +89,7 @@ fn main() {
         },
     };
 
-    let mut f = match File::open("./easy_clusters") {
+    let mut f = match File::open(INPUT_FILE) {
         Ok(f) => f,
         Err(e) => {
             println!("Couldn't open file containing data");
