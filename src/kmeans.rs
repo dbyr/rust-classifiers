@@ -53,11 +53,7 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
     fn categorise_all(&self, data: &Vec<T>) -> Result<Vec<usize>, TrainingError> {
         let mut cats = vec![0 as usize; data.len()];
         for (i, datum) in data.iter().enumerate() {
-            let res = self.categorise(datum);
-            match res {
-                Ok(index) => cats[i] = index,
-                Err(e) => return Err(e),
-            }
+            cats[i] = self.categorise(datum)?;
         }
         return Ok(cats);
     }
@@ -86,6 +82,7 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
             }
             self.categories[i] = new_val;
         }
+        println!("Updating centroids");
         return Ok(updated);
     }
 }
@@ -106,7 +103,7 @@ impl<T: EuclideanDistance + PartialEq + Random + Default + Clone> UnsupervisedCl
             }
             match self.update_centroids(data, &categories) {
                 Ok(fin) => {
-                    if fin {break;}
+                    if !fin {break;}
                 },
                 Err(e) => return Err(e),
             }
