@@ -32,7 +32,7 @@ impl Point{
         let mut post_decimal = false;
         let mut first_char = true;
         let mut x = 0.0;
-        let mut y = 0.0;
+        let y;
         for c in buff.iter() {
             // only match numbers (and delimit on space)
             if *c == 45u8 && first_char {

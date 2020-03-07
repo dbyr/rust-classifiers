@@ -117,11 +117,11 @@ impl<T: EuclideanDistance + PartialEq + Random + Default + Clone> UnsupervisedCl
         parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError> {
         let mut data = Vec::new();
-        let mut reader = BufReader::new(file);
+        let reader = BufReader::new(file);
         for line in reader.lines() {
             let buf = match line {
                 Ok(l) => l.into_bytes(),
-                Err(e) => return Err(TrainingError::FileReadFailed),
+                Err(_) => return Err(TrainingError::FileReadFailed),
             };
             let val = parser(&buf)?;
             data.push(val);
