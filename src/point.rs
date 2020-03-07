@@ -2,6 +2,7 @@ use rand::Rng;
 
 use crate::euclidean_distance::EuclideanDistance;
 use crate::random::Random;
+use crate::classifier::Attributable;
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct Point {
@@ -32,6 +33,15 @@ impl EuclideanDistance for Point {
 
     fn scalar_div(&self, scalar: &f64) -> Point {
         Point{x: self.x / scalar, y: self.y / scalar}
+    }
+}
+
+impl Attributable for Point {
+    fn attribute_names() -> String {
+        return "x,y".to_string();
+    }
+    fn attribute_values(&self) -> String {
+        return format!("{},{}", self.x, self.y).to_string();
     }
 }
 

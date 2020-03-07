@@ -1,5 +1,10 @@
 use std::fs::File;
 use std::f64;
+use std::io::{
+    Write,
+    LineWriter
+};
+use std::io::Result as IOResult;
 
 use crate::euclidean_distance::EuclideanDistance;
 
@@ -20,6 +25,16 @@ pub trait UnsupervisedClassifier<T: EuclideanDistance> {
         file: &mut File, 
         parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError>;
+}
+
+pub trait Attributable {
+    // returns a string demonstrating the attributes of this struct
+    // returns: attribute name string
+    fn attribute_names() -> String;
+
+    // returns this object's values in a corresponding format to attribute_names
+    // returns: attribute values string
+    fn attribute_values(&self) -> String;
 }
 
 pub enum TrainingError {
@@ -46,4 +61,24 @@ where T: EuclideanDistance {
         }
     }
     return closest_cat;
+}
+
+// classifies all the data in data, and saves the classified data to file
+// file: the file to save the classifications
+// data: the data to classify
+// categories: the categories into which to classify the data
+// return: whether the file was successfully created
+pub fn classify_csv<T>(file: &File, data: &Vec<T>, categories: &Vec<T>) -> IOResult<()>
+where T: EuclideanDistance + Attributable {
+    let mut writer = LineWriter::new(file);
+    writer.write_all(T::attribute_names().as_bytes())?;
+    writer.write_all(b",cat\n")?;
+
+    for val in data {
+        writer.write_all(val.attribute_values().as_bytes())?;
+        let cat = classify(val, categories);
+        writer.write_all(format!(",{}\n", cat).as_bytes())?;
+    }
+    writer.flush()?;
+    return Ok(());
 }
