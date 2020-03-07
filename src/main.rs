@@ -17,27 +17,8 @@ use crate::classifier::{
 
 static INPUT_FILE: &'static str = "./data/easy_clusters_rand";
 static OUTPUT_FILE: &'static str = "./data/clustered_data_rand.csv";
-
-fn point_from_vec(buff: &Vec<u8>) -> Result<Point, TrainingError> {
-    // let buf = buff.into_bytes();
-    let mut val = 0.0;
-    let mut x = 0.0;
-    let mut y = 0.0;
-    for c in buff {
-        // only match numbers (and delimit on space and new line)
-        if *c >= 48u8 && *c <= 57u8 {
-            val *= 10.0;
-            val += (*c - 48u8) as f64;
-        } else if *c == 32u8 {
-            x = val;
-            val = 0.0;
-        } else {
-            return Err(TrainingError::InvalidFile);
-        }
-    }
-    y = val;
-    return Ok(Point::new(x, y));
-}
+// static INPUT_FILE: &'static str = "./data/hr-diagram-data";
+// static OUTPUT_FILE: &'static str = "./data/clustered_hr_data.csv";
 
 fn point_vec_from_file(file: &File) -> Result<Vec<Point>, TrainingError> {
     let mut data = Vec::new();
@@ -47,17 +28,14 @@ fn point_vec_from_file(file: &File) -> Result<Vec<Point>, TrainingError> {
             Ok(l) => l.into_bytes(),
             Err(e) => return Err(TrainingError::FileReadFailed),
         };
-        let val = point_from_vec(&buf)?;
+        let val = Point::point_from_vec(&buf)?;
         data.push(val);
     }
     return Ok(data);
 }
 
 fn main() {
-    let p1 = Point::new(1.0, 2.0);
-    let p2 = Point::new(1.5, 3.0);
-    let cats = vec![Point::new(5.1, 10.2), Point::new(1.0, 3.0)];
-    let mut classifier = KMeans::<Point>::new(15);
+    let mut classifier = KMeans::<Point>::new(2);
     let mut f = match File::open(INPUT_FILE) {
         Ok(f) => f,
         Err(e) => {
@@ -67,7 +45,7 @@ fn main() {
     };
     let cats_res = classifier.train_from_file(
         &mut f,
-        &point_from_vec
+        &Point::point_from_vec
     );
 
     let cats = match cats_res {

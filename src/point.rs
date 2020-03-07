@@ -2,7 +2,10 @@ use rand::Rng;
 
 use crate::euclidean_distance::EuclideanDistance;
 use crate::random::Random;
-use crate::classifier::Attributable;
+use crate::classifier::{
+    TrainingError,
+    Attributable
+};
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct Point {
@@ -19,6 +22,46 @@ impl Point{
     }
     pub fn get_y(&self) -> &f64 {
         return &self.y;
+    }
+
+
+    pub fn point_from_vec(buff: &Vec<u8>) -> Result<Point, TrainingError> {
+        // let buf = buff.into_bytes();
+        let mut val = 0.0;
+        let mut multiplier = 1.0;
+        let mut post_decimal = false;
+        let mut first_char = true;
+        let mut x = 0.0;
+        let mut y = 0.0;
+        for c in buff.iter() {
+            // only match numbers (and delimit on space)
+            if *c == 45u8 && first_char {
+                first_char = false;
+                multiplier = -1.0;
+            } else if *c == 46u8 && !post_decimal {
+                post_decimal = true;
+            } else if *c >= 48u8 && *c <= 57u8 {
+                val *= 10.0;
+                val += (*c - 48u8) as f64;
+            } else if *c == 32u8 {
+                val *= multiplier;
+                x = val;
+                val = 0.0;
+                multiplier = 1.0;
+                post_decimal = false;
+                first_char = true;
+            } else {
+                return Err(TrainingError::InvalidFile);
+            }
+
+            // make sure decimals are handled correctly
+            if post_decimal {
+                multiplier /= 10.0;
+            }
+        }
+        val *= multiplier;
+        y = val;
+        return Ok(Point::new(x, y));
     }
 }
 
