@@ -25,6 +25,14 @@ impl EuclideanDistance for Point {
     fn distance(&self, rhs: &Point) -> f64 {
         ((self.x - rhs.x).powi(2) + (self.y - rhs.y).powi(2)).sqrt()
     }
+
+    fn add(&self, other: &Point) -> Point {
+        Point{x: self.x + other.x, y: self.y + other.y}
+    }
+
+    fn scalar_div(&self, scalar: &f64) -> Point {
+        Point{x: self.x / scalar, y: self.y / scalar}
+    }
 }
 
 impl Random for Point {

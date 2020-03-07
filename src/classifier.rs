@@ -7,12 +7,27 @@ pub trait UnsupervisedClassifier<T: EuclideanDistance> {
     // trains the classifier using "data"
     // data: the data with which to train the classifier
     // return: the categories/centroids that are produced
-    fn train(data: &Vec<T>) -> Vec<T>;
+    fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError>;
 
     // trains the classifier using the data in "file"
     // file: the file containing the data with which to train the classifier
+    // parser: a method to read T's from the file. returns a result with an option (which
+    //     should contain a value read from the file, or none if there are no more
+    //     values to read) on success, or a TrainingError if the file is invalid
     // return: the categories/centroids that are produced
-    fn train_from_file(file: &File) -> Vec<T>;
+    fn train_from_file(
+        &mut self, 
+        file: &mut File, 
+        parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
+    ) -> Result<Vec<T>, TrainingError>;
+}
+
+pub enum TrainingError {
+    InvalidData,
+    InvalidClassifier,
+    InvalidFile,
+
+    FileReadFailed,
 }
 
 // classifies "datum" into one of the provided "categories"
