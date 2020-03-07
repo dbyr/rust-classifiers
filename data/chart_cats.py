@@ -8,7 +8,7 @@ y_vals = []
 cats = []
 
 for i, line in enumerate(contents.split('\n')):
-    if i == 0:
+    if i == 0 or line == '':
         continue
     parts = line.split(',')
     x_vals.append(int(parts[0]))
