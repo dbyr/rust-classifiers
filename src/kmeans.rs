@@ -48,7 +48,7 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
     }
 
     // gets initial centroids by means of KMeans++
-    fn get_psuedo_random_centroids(&mut self, samples: &Vec<T>) {
+    fn get_weighted_random_centroids(&mut self, samples: &Vec<T>) {
         // can't do anything if there is no data
         if samples.len() == 0 || samples.len() < self.categories.len() {
             return;
