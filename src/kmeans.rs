@@ -1,5 +1,6 @@
 use crate::euclidean_distance::EuclideanDistance;
 use crate::random::Random;
+use rand::Rng;
 use std::fs::File;
 use std::f64;
 use std::io::{BufRead, BufReader};
@@ -21,19 +22,71 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
     }
 
     // private methods for use during training
+    
+    // gets initial centroids completely at random
     fn get_random_centroids(&mut self, samples: &Vec<T>) {
         // can't do anything if there is no data
-        if samples.len() == 0 {
+        if samples.len() == 0 || samples.len() < self.categories.len() {
             return;
         }
 
         // select some random values (this will not work
         // if there are more categories than samples)
-        let partition = samples.len() / self.k;
-        let mut selection = 0;
+        let mut taken = Vec::new();
+        let mut generator = rand::thread_rng();
+        let in_range = samples.len();
+        let mut selection: usize = generator.gen_range(0, in_range);
+        for cat in self.categories.iter_mut() {
+            // don't select the same category value twice
+            while taken.contains(&selection) {
+                selection = generator.gen_range(0, in_range);
+            }
+            println!("Selection: {}", selection);
+            *cat = samples[selection].clone();
+            taken.push(selection);
+        }
+    }
+
+    // gets initial centroids by means of KMeans++
+    fn get_psuedo_random_centroids(&mut self, samples: &Vec<T>) {
+        // can't do anything if there is no data
+        if samples.len() == 0 || samples.len() < self.categories.len() {
+            return;
+        }
+
+        // select some random value initially
+        let mut taken = Vec::new();
+        let mut generator = rand::thread_rng();
+        let mut prob_list;
+        let mut selection: usize = generator.gen_range(0, samples.len());
+
+        // continue to select values based on weighted probablity
         for cat in self.categories.iter_mut() {
             *cat = samples[selection].clone();
-            selection += partition;
+            taken.push(selection);
+
+            // weight the next set of values
+            let mut weight_total = 0;
+            prob_list = Vec::new();
+            for (i, value) in samples.iter().enumerate() {
+                if taken.contains(&i) {
+                    continue;
+                }
+                let distance = cat.distance(value);
+                let weight = (distance * distance) as i64;
+                prob_list.push((i, weight));
+                weight_total += weight;
+            }
+
+            // now select one at random
+            let mut remainder = generator.gen_range(0, weight_total);
+            for pair in prob_list {
+                remainder -= pair.1;
+                if remainder <= 0 {
+                    selection = pair.0;
+                    break;
+                }
+            }
         }
     }
 
@@ -90,7 +143,7 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
 impl<T: EuclideanDistance + PartialEq + Random + Default + Clone> UnsupervisedClassifier<T> for KMeans<T> {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
-        self.get_random_centroids(data);
+        self.get_psuedo_random_centroids(data);
 
         // until the centroids don't change, keep changing the centroids
         let mut categories: Vec<usize>;
