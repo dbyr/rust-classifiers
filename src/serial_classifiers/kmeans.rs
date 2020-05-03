@@ -1,12 +1,10 @@
-use crate::euclidean_distance::EuclideanDistance;
 use rand::Rng;
 use std::f64;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::serial_classifiers::classifier::{
-    UnsupervisedClassifier
-};
+use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
+use crate::euclidean_distance::EuclideanDistance;
 use crate::common::{
     TrainingError,
     ClassificationError

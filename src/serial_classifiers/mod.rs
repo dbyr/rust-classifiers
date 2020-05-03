@@ -1,2 +1,2 @@
-pub mod classifier;
+pub mod unsupervised_classifier;
 pub mod kmeans;

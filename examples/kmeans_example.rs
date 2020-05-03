@@ -1,11 +1,13 @@
 extern crate rust_classifiers;
 
+mod point;
+use point::Point;
+
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use rust_classifiers::serial_classifiers::kmeans::KMeans;
-use rust_classifiers::point::Point;
-use rust_classifiers::serial_classifiers::classifier::{
+use rust_classifiers::serial_classifiers::unsupervised_classifier::{
     UnsupervisedClassifier,
     classify_csv
 };
