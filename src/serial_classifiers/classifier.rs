@@ -1,5 +1,8 @@
 use std::fs::File;
-use std::f64;
+use std::io::{
+    Error,
+    ErrorKind
+};
 use std::io::{
     Write,
     LineWriter
@@ -7,6 +10,11 @@ use std::io::{
 use std::io::Result as IOResult;
 
 use crate::euclidean_distance::EuclideanDistance;
+use crate::common::{
+    TrainingError,
+    ClassificationError,
+    Attributable
+};
 
 pub trait UnsupervisedClassifier<T: EuclideanDistance> {
     // trains the classifier using "data"
@@ -25,42 +33,11 @@ pub trait UnsupervisedClassifier<T: EuclideanDistance> {
         file: &mut File, 
         parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError>;
-}
 
-pub trait Attributable {
-    // returns a string demonstrating the attributes of this struct
-    // returns: attribute name string
-    fn attribute_names() -> String;
-
-    // returns this object's values in a corresponding format to attribute_names
-    // returns: attribute values string
-    fn attribute_values(&self) -> String;
-}
-
-pub enum TrainingError {
-    InvalidData,
-    InvalidClassifier,
-    InvalidFile,
-
-    FileReadFailed,
-}
-
-// classifies "datum" into one of the provided "categories"
-// datum: the data to classify
-// categories: the categories into which to classify datum
-// return: the index of the category most appropriate for datum, or -1 if categories size is 0
-pub fn classify<T>(datum: &T, categories: &Vec<T>) -> isize 
-where T: EuclideanDistance {
-    let mut closest_dist = f64::MAX;
-    let mut closest_cat: isize = -1;
-    for (i, cat) in categories.iter().enumerate() {
-        let cur_dist = datum.distance(cat);
-        if cur_dist < closest_dist {
-            closest_dist = cur_dist;
-            closest_cat = i as isize;
-        }
-    }
-    return closest_cat;
+    // classifies a datum using the trained classifier
+    // datum: the data one wishes to classify
+    // return: the category to which this datum belongs
+    fn classify(&self, datum: &T) -> Result<usize, ClassificationError>;
 }
 
 // classifies all the data in data, and saves the classified data to file
@@ -68,7 +45,11 @@ where T: EuclideanDistance {
 // data: the data to classify
 // categories: the categories into which to classify the data
 // return: whether the file was successfully created
-pub fn classify_csv<T>(file: &File, data: &Vec<T>, categories: &Vec<T>) -> IOResult<()>
+pub fn classify_csv<T>(
+    classifier: &dyn UnsupervisedClassifier<T>, 
+    file: &File, 
+    data: &Vec<T>
+) -> IOResult<()>
 where T: EuclideanDistance + Attributable {
     let mut writer = LineWriter::new(file);
     writer.write_all(T::attribute_names().as_bytes())?;
@@ -76,7 +57,18 @@ where T: EuclideanDistance + Attributable {
 
     for val in data {
         writer.write_all(val.attribute_values().as_bytes())?;
-        let cat = classify(val, categories);
+        let cat;
+        let class = match classifier.classify(val) {
+            Ok(v) => v as i64,
+            Err(_) => -1
+        };
+        if class >= 0 {
+            cat = class as usize;
+        } else {
+            return Err(Error::new(
+                ErrorKind::Other, "CSV creation failed: could not classify some data"
+            ));
+        }
         writer.write_all(format!(",{}\n", cat).as_bytes())?;
     }
     writer.flush()?;

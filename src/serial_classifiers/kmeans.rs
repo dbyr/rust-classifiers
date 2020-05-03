@@ -1,13 +1,15 @@
 use crate::euclidean_distance::EuclideanDistance;
-use crate::random::Random;
 use rand::Rng;
-use std::fs::File;
 use std::f64;
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::classifier::{
-    UnsupervisedClassifier,
-    TrainingError
+use crate::serial_classifiers::classifier::{
+    UnsupervisedClassifier
+};
+use crate::common::{
+    TrainingError,
+    ClassificationError
 };
 
 #[derive(Debug)]
@@ -16,7 +18,8 @@ pub struct KMeans<T: EuclideanDistance + PartialEq + Default + Clone> {
     k: usize
 }
 
-impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
+impl<T> KMeans<T> 
+where T: EuclideanDistance + PartialEq + Default + Clone {
     pub fn new(k: usize) -> KMeans<T> {
         KMeans{categories: Box::new(vec![Default::default(); k]), k: k}
     }
@@ -140,10 +143,11 @@ impl<T: EuclideanDistance + PartialEq + Default + Clone> KMeans<T> {
     }
 }
 
-impl<T: EuclideanDistance + PartialEq + Random + Default + Clone> UnsupervisedClassifier<T> for KMeans<T> {
+impl<T> UnsupervisedClassifier<T> for KMeans<T>
+where T: EuclideanDistance + PartialEq + Default + Clone {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
-        self.get_psuedo_random_centroids(data);
+        self.get_weighted_random_centroids(data);
 
         // until the centroids don't change, keep changing the centroids
         let mut categories: Vec<usize>;
@@ -180,5 +184,16 @@ impl<T: EuclideanDistance + PartialEq + Random + Default + Clone> UnsupervisedCl
             data.push(val);
         }
         return self.train(&data);
+    }
+
+    fn classify(&self, datum: &T) -> Result<usize, ClassificationError> {
+        if self.categories.len() <= 0 {
+            return Err(ClassificationError::ClassifierNotTrained);
+        }
+        let result = self.categorise(datum);
+        match result {
+            Ok(i) => Ok(i),
+            Err(_) => Err(ClassificationError::ClassifierInvalid)
+        }
     }
 }
