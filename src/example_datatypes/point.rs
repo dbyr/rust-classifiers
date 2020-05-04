@@ -1,10 +1,9 @@
-extern crate rust_classifiers;
-
 use rand::Rng;
 
-use rust_classifiers::euclidean_distance::EuclideanDistance;
-use rust_classifiers::random::Random;
-use rust_classifiers::common::{
+use crate::euclidean_distance::EuclideanDistance;
+use crate::random::Random;
+use crate
+::common::{
     TrainingError,
     Attributable
 };
@@ -117,8 +116,9 @@ impl Random for Point {
 
 #[cfg(test)]
 mod tests {
-    use rust_classifiers::point::Point;
-    use rust_classifiers::common::TrainingError;
+    use crate::euclidean_distance::EuclideanDistance;
+    use super::Point;
+    use crate::common::TrainingError;
 
     #[test]
     fn test_point_from_vec() {
@@ -141,5 +141,24 @@ mod tests {
         let expected = TrainingError::InvalidData;
         let actual = Point::point_from_vec(&"abc".to_owned().into_bytes());
         assert_eq!(Err(expected), actual, "Point::point_from_vec failed: test failures");
+    }
+
+    #[test]
+    fn test_point_euclidean_distance() {
+        let point1 = Point::new(1.0, 2.0);
+        let point2 = Point::new(4.0, 6.0);
+
+        // test distance
+        let dist = point1.distance(&point2);
+        assert!(dist < 5.000001);
+        assert!(dist > 4.999999);
+
+        // test add
+        let added = point1.add(&point2);
+        assert_eq!(Point::new(5.0, 8.0), added);
+
+        // test scalar division
+        let divd = point2.scalar_div(&2.0);
+        assert_eq!(Point::new(2.0, 3.0), divd);
     }
 }

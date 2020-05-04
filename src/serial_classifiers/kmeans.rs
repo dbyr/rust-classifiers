@@ -42,7 +42,6 @@ where T: EuclideanDistance + PartialEq + Default + Clone {
             while taken.contains(&selection) {
                 selection = generator.gen_range(0, in_range);
             }
-            println!("Selection: {}", selection);
             *cat = samples[selection].clone();
             taken.push(selection);
         }
@@ -136,7 +135,6 @@ where T: EuclideanDistance + PartialEq + Default + Clone {
             }
             self.categories[i] = new_val;
         }
-        println!("Updating centroids");
         return Ok(updated);
     }
 }
