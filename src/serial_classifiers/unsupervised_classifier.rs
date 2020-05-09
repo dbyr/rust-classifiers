@@ -16,7 +16,7 @@ use crate::common::{
     Attributable
 };
 
-pub trait UnsupervisedClassifier<T: EuclideanDistance> {
+pub trait UnsupervisedClassifier<T> {
     // trains the classifier using "data"
     // data: the data with which to train the classifier
     // return: the categories/centroids that are produced
