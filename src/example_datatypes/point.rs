@@ -1,4 +1,6 @@
 use rand::Rng;
+use std::str::from_utf8;
+use std::str;
 
 use crate::euclidean_distance::EuclideanDistance;
 use crate::random::Random;
@@ -27,47 +29,36 @@ impl Point{
 
 
     pub fn point_from_vec(buff: &Vec<u8>) -> Result<Point, TrainingError> {
-        // let buf = buff.into_bytes();
-        let mut val = 0.0;
-        let mut sign = 1.0;
-        let mut multiplier = 1.0;
-        let mut addition;
-        let mut post_decimal = false;
-        let mut first_char = true;
         let mut x = 0.0;
         let y;
-        for c in buff.iter() {
-            // only match numbers (and delimit on space)
-            if *c == 45u8 && first_char {
-                first_char = false;
-                sign = -1.0;
-            } else if *c == 46u8 && !post_decimal {
-                post_decimal = true;
-                continue;
-            } else if *c >= 48u8 && *c <= 57u8 {
-                // make sure decimals are handled correctly
-                addition = (*c - 48u8) as f64;
-                if post_decimal {
-                    multiplier *= 10.0;
-                    addition /= multiplier;
-                } else {
-                    val *= 10.0;
+
+        let mut rep_parts = from_utf8(&buff[..]).unwrap().split_ascii_whitespace();
+        x = match rep_parts.next() {
+            Some(v) => {
+                match v.parse::<f64>() {
+                    Ok(x_val) => x_val,
+                    Err(_) => {
+                        return Err(TrainingError::InvalidData);
+                    }
                 }
-                val += addition;
-            } else if *c == 32u8 {
-                val *= sign;
-                x = val;
-                val = 0.0;
-                sign = 1.0;
-                multiplier = 1.0;
-                post_decimal = false;
-                first_char = true;
-            } else {
+            },
+            None => {
                 return Err(TrainingError::InvalidData);
             }
-        }
-        val *= sign;
-        y = val;
+        };
+        y = match rep_parts.next() {
+            Some(v) => {
+                match v.parse::<f64>() {
+                    Ok(y_val) => y_val,
+                    Err(_) => {
+                        return Err(TrainingError::InvalidData);
+                    }
+                }
+            },
+            None => {
+                return Err(TrainingError::InvalidData);
+            }
+        };
         return Ok(Point::new(x, y));
     }
 }

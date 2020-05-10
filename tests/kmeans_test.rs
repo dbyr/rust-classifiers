@@ -5,7 +5,6 @@ mod tests {
     use rust_classifiers::serial_classifiers::kmeans::KMeans;
     use rust_classifiers::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
     use rust_classifiers::example_datatypes::point::Point;
-    use rust_classifiers::euclidean_distance::EuclideanDistance;
 
     #[test]
     fn test_train() {
