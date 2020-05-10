@@ -29,11 +29,8 @@ impl Point{
 
 
     pub fn point_from_vec(buff: &Vec<u8>) -> Result<Point, TrainingError> {
-        let mut x = 0.0;
-        let y;
-
         let mut rep_parts = from_utf8(&buff[..]).unwrap().split_ascii_whitespace();
-        x = match rep_parts.next() {
+        let x = match rep_parts.next() {
             Some(v) => {
                 match v.parse::<f64>() {
                     Ok(x_val) => x_val,
@@ -46,7 +43,7 @@ impl Point{
                 return Err(TrainingError::InvalidData);
             }
         };
-        y = match rep_parts.next() {
+        let y = match rep_parts.next() {
             Some(v) => {
                 match v.parse::<f64>() {
                     Ok(y_val) => y_val,
