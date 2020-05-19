@@ -19,35 +19,40 @@ fn main() {
                 .broadcast() // everyone sends their local totals to each other
                 .accumulate( // everyone calculates the new global means
                     vec!(),
-                    |totals: &mut Vec<Point>, locals: timely_communication::message::RefOrMut<Vec<Vec<(Point, usize)>>>| {
-                    // |totals, locals| {
-                        let mut sums = vec!();
-                        for local in locals.iter() {
-                            for (i, pair) in local.iter().enumerate() {
-                                if sums.len() <= i {
-                                    sums.push((pair.0.clone(), pair.1));
-                                } else {
-                                    sums[i].0.add(&pair.0);
-                                    sums[i].1 += pair.1;
-                                }
+                    move |totals: &mut Vec<(Point, usize)>, 
+                    locals: timely_communication::message::RefOrMut<Vec<(Point, usize, usize)>>| {
+                        for pair in locals.iter() {
+                            let i = pair.2;
+                            if totals.len() <= i {
+                                totals.push((pair.0.clone(), pair.1));
+                            } else {
+                                totals[i].0.add(&pair.0);
+                                totals[i].1 += pair.1;
                             }
-                        }
-                        for sum in sums.iter() {
-                            totals.push(sum.0.scalar_div(&(sum.1 as f64)));
                         }
                     }
                 )
+                .map(|point_sums| {
+                    point_sums
+                    .into_iter()
+                    .map(|point_sum| point_sum.0.scalar_div(&(point_sum.1 as f64)))
+                    .collect::<Vec<Point>>()
+                })
                 .inspect(move |v| println!("worker {} sees {:?}", index, v))
                 .probe_with(&mut probe);
         });
 
         for i in 0..10 {
-            input.send(vec!(
+            println!("worker {} sending round {}", index, i);
+            let means = vec!(
                 // these pairs will be the "sum" and "count" of values
                 // associated with each mean (in this case, two)
                 (Point::new(i as f64+5.0, i as f64), index + 1), // first mean
                 (Point::new(-i as f64-5.0, i as f64), index + 1) // second mean
-            ));
+            );
+            for (i, mean) in means.into_iter().enumerate() {
+                input.send((mean.0, mean.1, i));
+            }
             input.advance_to(input.epoch() + 1);
             while probe.less_than(input.time()) {
                 worker.step();

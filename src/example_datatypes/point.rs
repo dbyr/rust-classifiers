@@ -1,6 +1,11 @@
 use rand::Rng;
 use std::str::from_utf8;
 use std::str;
+use std::io::Result as IOResult;
+use std::io::Write;
+use abomonation::Abomonation;
+use abomonation::unsafe_abomonate;
+use f64;
 
 use crate::euclidean_distance::EuclideanDistance;
 use crate::random::Random;
@@ -9,8 +14,14 @@ use crate
     TrainingError,
     Attributable
 };
+use std::fmt::Result as FmtResult;
+use std::fmt::{
+    Debug,
+    Formatter
+};
 
-#[derive(Debug, PartialEq, Default, Clone)]
+// #[derive(Debug, PartialEq, Default, Clone)]
+#[derive(PartialEq, Default, Clone)]
 pub struct Point {
     x: f64,
     y: f64
@@ -60,6 +71,17 @@ impl Point{
     }
 }
 
+impl Debug for Point {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
+        write!(f, "({:.2},{:.2})", self.get_x(), self.get_y())
+    }
+}
+
 impl EuclideanDistance for Point {
     fn distance(&self, rhs: &Point) -> f64 {
         ((self.x - rhs.x).powi(2) + (self.y - rhs.y).powi(2)).sqrt()
@@ -101,6 +123,9 @@ impl Random for Point {
         }
     }
 }
+
+// implement the abomonation trait for use with with timely
+unsafe_abomonate!(Point : x, y);
 
 #[cfg(test)]
 mod tests {
