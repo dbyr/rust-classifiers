@@ -2,7 +2,6 @@ use rand::Rng;
 use std::f64;
 use std::collections::HashMap;
 use std::fs::File;
-use std::fmt::Debug;
 use std::io::{BufRead, BufReader};
 
 use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
@@ -26,7 +25,7 @@ pub struct KMeans<T: EuclideanDistance + PartialEq + Clone> {
 }
 
 impl<T> KMeans<T> 
-where T: EuclideanDistance + PartialEq + Clone + Debug {
+where T: EuclideanDistance + PartialEq + Clone {
     // get a regular kmeans object
     pub fn new(k: usize) -> KMeans<T> {
         KMeans{categories: None, k: k, trainer: Initiliser::Default}
@@ -188,7 +187,7 @@ where T: EuclideanDistance + PartialEq + Clone + Debug {
 }
 
 impl<T> UnsupervisedClassifier<T> for KMeans<T>
-where T: EuclideanDistance + PartialEq + Clone + Debug {
+where T: EuclideanDistance + PartialEq + Clone {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
         self.initialise_with_appropriate_method(data);
