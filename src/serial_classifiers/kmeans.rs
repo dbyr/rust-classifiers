@@ -1,6 +1,8 @@
 use rand::Rng;
 use std::f64;
+use std::collections::HashMap;
 use std::fs::File;
+use std::fmt::Debug;
 use std::io::{BufRead, BufReader};
 
 use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
@@ -24,7 +26,7 @@ pub struct KMeans<T: EuclideanDistance + PartialEq + Clone> {
 }
 
 impl<T> KMeans<T> 
-where T: EuclideanDistance + PartialEq + Clone {
+where T: EuclideanDistance + PartialEq + Clone + Debug {
     // get a regular kmeans object
     pub fn new(k: usize) -> KMeans<T> {
         KMeans{categories: None, k: k, trainer: Initiliser::Default}
@@ -47,13 +49,13 @@ where T: EuclideanDistance + PartialEq + Clone {
     
     // gets initial centroids completely at random
     fn get_random_centroids(&mut self, samples: &Vec<T>) {
-        // reset the previous training, if any
-        self.categories = Some(Box::new(Vec::new()));
-
         // can't do anything if there is no data
         if samples.len() == 0 || samples.len() < self.k {
             return;
         }
+        
+        // reset the previous training, if any
+        self.categories = Some(Box::new(Vec::new()));
 
         // select some random values (this will not work
         // if there are more categories than samples)
@@ -84,7 +86,7 @@ where T: EuclideanDistance + PartialEq + Clone {
         // select one random value initially
         let mut taken = Vec::new();
         let mut generator = rand::thread_rng();
-        let mut prob_list = Vec::new();
+        let mut prob_list = HashMap::<usize, f64>::new();
         let mut selection: usize = generator.gen_range(0, samples.len());
         let categories = self.categories.as_mut().unwrap();
 
@@ -92,33 +94,35 @@ where T: EuclideanDistance + PartialEq + Clone {
         categories.push(samples[selection].clone());
         taken.push(selection);
         for _ in 0..(self.k - 1) {
-
             // weight the next set of values
-            let mut weight_total = 0.0;
+            let mut weight_total = 0;
             for (i, value) in samples.iter().enumerate() {
+                if taken.contains(&i) {
+                    continue;
+                }
                 let distance = categories[categories.len() - 1].distance(value);
 
                 // use the closest of the currently selected centroids
-                if prob_list.len() <= i {
-                    prob_list.push((i, distance));
-                } else if prob_list[i].1 > distance {
-                    prob_list[i].1 = distance;
+                if let Some(v) = prob_list.get_mut(&i) {
+                    if distance < *v {
+                        *v = distance;
+                    }
+                } else {
+                    prob_list.insert(i, distance);
                 }
-                weight_total += distance.powi(2);
+                weight_total += prob_list[&i].powi(2) as usize;
             }
 
             // now select one at random
-            let mut remainder = generator.gen_range(0, weight_total as usize) as f64;
-            for pair in prob_list.iter() {
-                if taken.contains(&pair.0) {
-                    continue;
-                }
-                remainder -= pair.1.powi(2);
+            let mut remainder = generator.gen_range(0, weight_total) as f64;
+            for k in prob_list.keys() {
+                remainder -= prob_list[k].powi(2);
                 if remainder <= 0.0 {
-                    selection = pair.0;
+                    selection = *k;
                     break;
                 }
             }
+            prob_list.remove(&selection);
             categories.push(samples[selection].clone());
             taken.push(selection);
         }
@@ -126,7 +130,7 @@ where T: EuclideanDistance + PartialEq + Clone {
 
     fn categorise(&self, datum: &T) -> Result<usize, TrainingError> {
         let mut result = Err(TrainingError::InvalidClassifier);
-        let mut distance: f64 = f64::MAX;
+        let mut distance = f64::MAX;
         let categories = match &self.categories {
             Some(c) => c,
             None => return result
@@ -142,9 +146,9 @@ where T: EuclideanDistance + PartialEq + Clone {
     }
 
     fn categorise_all(&self, data: &Vec<T>) -> Result<Vec<usize>, TrainingError> {
-        let mut cats = vec![0 as usize; data.len()];
-        for (i, datum) in data.iter().enumerate() {
-            cats[i] = self.categorise(datum)?;
+        let mut cats = Vec::new();
+        for datum in data.iter() {
+            cats.push(self.categorise(datum)?);
         }
         return Ok(cats);
     }
@@ -170,6 +174,9 @@ where T: EuclideanDistance + PartialEq + Clone {
 
         // update the old value, and keep track of it if changed
         for (i, sum) in sums.iter_mut().enumerate() {
+            if counts[i] == 0 {
+                continue;
+            }
             let new_val = sum.scalar_div(&(counts[i] as f64));
             if new_val != categories[i] {
                 updated = true;
@@ -181,7 +188,7 @@ where T: EuclideanDistance + PartialEq + Clone {
 }
 
 impl<T> UnsupervisedClassifier<T> for KMeans<T>
-where T: EuclideanDistance + PartialEq + Clone {
+where T: EuclideanDistance + PartialEq + Clone + Debug {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
         self.initialise_with_appropriate_method(data);

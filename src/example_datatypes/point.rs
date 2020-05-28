@@ -168,11 +168,14 @@ mod tests {
     fn test_point_euclidean_ops() {
         let point1 = Point::new(1.0, 2.0);
         let point2 = Point::new(4.0, 6.0);
+        let point3 = Point::new(2.34, 5.11);
 
         // test distance
         let dist = point1.distance(&point2);
         assert!(dist < 5.000001);
         assert!(dist > 4.999999);
+        let dist = point3.distance(&point3);
+        assert_eq!(dist, 0.0);
 
         // test add
         let added = point1.add(&point2);

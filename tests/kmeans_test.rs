@@ -5,8 +5,6 @@ mod tests {
     use rust_classifiers::serial_classifiers::kmeans::KMeans;
     use rust_classifiers::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
     use rust_classifiers::example_datatypes::point::Point;
-    use rust_classifiers::serial_classifiers::unsupervised_classifier::classify_csv;
-    use std::fs::File;
 
     #[test]
     fn test_train() {
@@ -37,7 +35,6 @@ mod tests {
             classifier.classify(&sample_data[2]), 
             classifier.classify(&sample_data[5])
         );
-        classify_csv(&classifier, &File::create("test_train.csv").unwrap(), &sample_data);
     }
 
     #[test]
@@ -61,7 +58,6 @@ mod tests {
         );
         sample_data.push(point1);
         sample_data.push(point2);
-        classify_csv(&classifier, &File::create("test_classify.csv").unwrap(), &sample_data);
     }
 
     fn train_generic_classifier() -> KMeans<Point> {
