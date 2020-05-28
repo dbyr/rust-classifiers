@@ -91,8 +91,16 @@ impl EuclideanDistance for Point {
         Point{x: self.x + other.x, y: self.y + other.y}
     }
 
+    fn sub(&self, other: &Point) -> Point {
+        Point{x: self.x - other.x, y: self.y - other.y}
+    }
+
     fn scalar_div(&self, scalar: &f64) -> Point {
         Point{x: self.x / scalar, y: self.y / scalar}
+    }
+
+    fn origin() -> Point {
+        Self::default()
     }
 }
 
@@ -157,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn test_point_euclidean_distance() {
+    fn test_point_euclidean_ops() {
         let point1 = Point::new(1.0, 2.0);
         let point2 = Point::new(4.0, 6.0);
 

@@ -57,18 +57,13 @@ where T: EuclideanDistance + Attributable {
 
     for val in data {
         writer.write_all(val.attribute_values().as_bytes())?;
-        let cat;
-        let class = match classifier.classify(val) {
-            Ok(v) => v as i64,
-            Err(_) => -1
-        };
-        if class >= 0 {
-            cat = class as usize;
-        } else {
-            return Err(Error::new(
+        let cat = match classifier.classify(val) {
+            Ok(v) => v,
+            Err(_) => return Err(Error::new(
                 ErrorKind::Other, "CSV creation failed: could not classify some data"
-            ));
-        }
+            ))
+        };
+        
         writer.write_all(format!(",{}\n", cat).as_bytes())?;
     }
     writer.flush()?;

@@ -1,6 +1,11 @@
 from matplotlib.pyplot import scatter, show
+from sys import argv
 
-with open("./clustered_hr_data.csv") as file:
+# with open("./clustered_hr_data.csv") as file:
+if len(argv) != 2:
+    print("No filename given")
+    quit()
+with open(argv[1]) as file:
     contents = file.read()
 
 x_vals = []
