@@ -9,7 +9,7 @@ pub trait EuclideanDistance {
     fn sub(&self, other: &Self) -> Self;
 
     // divide this value by a scalar
-    fn scalar_div(&self, scalar: &f64) -> Self;
+    fn scalar_div(&self, scalar: f64) -> Self;
 
     // get the origin for this euclidean space
     fn origin() -> Self;
