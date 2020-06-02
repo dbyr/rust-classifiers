@@ -95,7 +95,7 @@ impl EuclideanDistance for Point {
         Point{x: self.x - other.x, y: self.y - other.y}
     }
 
-    fn scalar_div(&self, scalar: &f64) -> Point {
+    fn scalar_div(&self, scalar: f64) -> Point {
         Point{x: self.x / scalar, y: self.y / scalar}
     }
 

@@ -176,7 +176,7 @@ where T: EuclideanDistance + PartialEq + Clone {
             if counts[i] == 0 {
                 continue;
             }
-            let new_val = sum.scalar_div(&(counts[i] as f64));
+            let new_val = sum.scalar_div(counts[i] as f64);
             if new_val != categories[i] {
                 updated = true;
             }
