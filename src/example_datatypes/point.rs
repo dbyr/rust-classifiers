@@ -1,13 +1,11 @@
 use rand::Rng;
 use std::str::from_utf8;
-use std::str;
-use std::io::Result as IOResult;
-use std::io::Write;
 use abomonation::Abomonation;
 use abomonation::unsafe_abomonate;
 use f64;
 
 use crate::euclidean_distance::EuclideanDistance;
+use crate::impl_euclidean_distance;
 use crate::random::Random;
 use crate
 ::common::{
@@ -82,29 +80,10 @@ impl Debug for Point {
     }
 }
 
-impl EuclideanDistance for Point {
-    fn distance(&self, rhs: &Point) -> f64 {
-        ((self.x - rhs.x).powi(2) + (self.y - rhs.y).powi(2)).sqrt()
-    }
+// implement the EuclideanDistance trait
+impl_euclidean_distance!(Point: x, y);
 
-    fn add(&self, other: &Point) -> Point {
-        Point{x: self.x + other.x, y: self.y + other.y}
-    }
-
-    fn sub(&self, other: &Point) -> Point {
-        Point{x: self.x - other.x, y: self.y - other.y}
-    }
-
-    fn scalar_div(&self, scalar: &f64) -> Point {
-        Point{x: self.x / scalar, y: self.y / scalar}
-    }
-
-    fn origin() -> Point {
-        Self::default()
-    }
-}
-
-impl Attributable for Point {
+impl Attributable<Point> for Point {
     fn attribute_names() -> String {
         return "x,y".to_string();
     }
@@ -182,7 +161,7 @@ mod tests {
         assert_eq!(Point::new(5.0, 8.0), added);
 
         // test scalar division
-        let divd = point2.scalar_div(&2.0);
+        let divd = point2.scalar_div(2.0);
         assert_eq!(Point::new(2.0, 3.0), divd);
     }
 }

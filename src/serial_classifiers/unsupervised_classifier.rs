@@ -9,7 +9,6 @@ use std::io::{
 };
 use std::io::Result as IOResult;
 
-use crate::euclidean_distance::EuclideanDistance;
 use crate::common::{
     TrainingError,
     ClassificationError,
@@ -45,12 +44,12 @@ pub trait UnsupervisedClassifier<T> {
 // data: the data to classify
 // categories: the categories into which to classify the data
 // return: whether the file was successfully created
-pub fn classify_csv<T>(
+pub fn classify_csv<T, D>(
     classifier: &dyn UnsupervisedClassifier<T>, 
     file: &File, 
     data: &Vec<T>
 ) -> IOResult<()>
-where T: EuclideanDistance + Attributable {
+where T: Attributable<D> {
     let mut writer = LineWriter::new(file);
     writer.write_all(T::attribute_names().as_bytes())?;
     writer.write_all(b",cat\n")?;

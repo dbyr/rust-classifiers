@@ -2,6 +2,7 @@ use rand::Rng;
 use std::f64;
 use std::collections::HashMap;
 use std::fs::File;
+use std::marker::PhantomData;
 use std::io::{BufRead, BufReader};
 
 use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
@@ -18,22 +19,23 @@ enum Initiliser {
 }
 
 #[derive(Debug)]
-pub struct KMeans<T: EuclideanDistance + PartialEq + Clone> {
+pub struct KMeans<D, T: EuclideanDistance<D> + PartialEq + Clone> {
     categories: Option<Box<Vec<T>>>,
     k: usize,
-    trainer: Initiliser
+    trainer: Initiliser,
+    phantom: Option<PhantomData<D>>
 }
 
-impl<T> KMeans<T> 
-where T: EuclideanDistance + PartialEq + Clone {
+impl<D, T> KMeans<D, T> 
+where T: EuclideanDistance<D> + PartialEq + Clone {
     // get a regular kmeans object
-    pub fn new(k: usize) -> KMeans<T> {
-        KMeans{categories: None, k: k, trainer: Initiliser::Default}
+    pub fn new(k: usize) -> KMeans<D, T> {
+        KMeans{categories: None, k: k, trainer: Initiliser::Default, phantom: None}
     }
 
     // get a kmeans++ object
-    pub fn new_pp(k: usize) -> KMeans<T> {
-        KMeans{categories: None, k: k, trainer: Initiliser::PP}
+    pub fn new_pp(k: usize) -> KMeans<D, T> {
+        KMeans{categories: None, k: k, trainer: Initiliser::PP, phantom: None}
     }
 
     // private methods for use during training
@@ -176,7 +178,7 @@ where T: EuclideanDistance + PartialEq + Clone {
             if counts[i] == 0 {
                 continue;
             }
-            let new_val = sum.scalar_div(&(counts[i] as f64));
+            let new_val = sum.scalar_div(counts[i] as f64);
             if new_val != categories[i] {
                 updated = true;
             }
@@ -186,8 +188,8 @@ where T: EuclideanDistance + PartialEq + Clone {
     }
 }
 
-impl<T> UnsupervisedClassifier<T> for KMeans<T>
-where T: EuclideanDistance + PartialEq + Clone {
+impl<D, T> UnsupervisedClassifier<T> for KMeans<D, T>
+where T: EuclideanDistance<D> + PartialEq + Clone {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
         self.initialise_with_appropriate_method(data);
@@ -246,12 +248,12 @@ mod tests {
     use super::*;
     use crate::example_datatypes::point::Point;
     
-    fn get_some_classifier() -> KMeans<Point> {
+    fn get_some_classifier() -> KMeans<Point, Point> {
         KMeans{categories: Some(Box::new(vec![
             Point::new(0.0, 1.0),
             Point::new(-1.0, -1.0),
             Point::new(1.0, -1.0)
-        ])), k: 3, trainer: Initiliser::Default}
+        ])), k: 3, trainer: Initiliser::Default, phantom: None}
     }
 
     fn get_some_data_points() -> Vec<Point> {
@@ -280,10 +282,10 @@ mod tests {
         assert_eq!(c.categorise(&data[1]), Ok(1));
         assert_eq!(c.categorise(&data[2]), Ok(2));
 
-        let c = KMeans::<Point>{categories: None, k: 0, trainer: Initiliser::Default};
+        let c = KMeans::<Point, Point>{categories: None, k: 0, trainer: Initiliser::Default, phantom: None};
         assert_eq!(c.categorise(&data[0]), Err(TrainingError::InvalidClassifier));
 
-        let c = KMeans::<Point>::new(0);
+        let c = KMeans::<Point, Point>::new(0);
         assert_eq!(c.categorise(&data[0]), Err(TrainingError::InvalidClassifier));
     }
 
@@ -293,10 +295,10 @@ mod tests {
         let data = get_some_data_points();
         assert_eq!(c.categorise_all(&data), Ok(vec!(0, 1, 2)));
 
-        let c = KMeans::<Point>{categories: None, k: 0, trainer: Initiliser::Default};
+        let c = KMeans::<Point, Point>{categories: None, k: 0, trainer: Initiliser::Default, phantom: None};
         assert_eq!(c.categorise_all(&data), Err(TrainingError::InvalidClassifier));
 
-        let c = KMeans::<Point>::new(0);
+        let c = KMeans::<Point, Point>::new(0);
         assert_eq!(c.categorise_all(&data), Err(TrainingError::InvalidClassifier));
     }
 

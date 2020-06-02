@@ -48,7 +48,7 @@ macro_rules! impl_euclidean_distance {
             fn distance(&self, other: &[$t; $size]) -> f64 {
                 let mut distance = 0.0;
                 for i in 0..$size {
-                    distance += (self[i] - other[i]).powi(2);
+                    distance += (self[i] as f64 - other[i] as f64).powi(2);
                 }
                 distance.sqrt()
             }
@@ -69,7 +69,7 @@ macro_rules! impl_euclidean_distance {
             fn scalar_div(&self, scalar: f64) -> [$t; $size] {
                 let mut result = [$t::default(); $size];
                 for i in 0..$size {
-                    result[i] = self[i] / scalar;
+                    result[i] = self[i] as f64 / scalar;
                 }
                 result
             }
