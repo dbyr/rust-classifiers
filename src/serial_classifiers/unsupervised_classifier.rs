@@ -31,7 +31,7 @@ pub trait UnsupervisedClassifier<T> {
     fn train_from_file(
         &mut self, 
         file: &mut File, 
-        parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
+        parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError>;
 
     // classifies a datum using the trained classifier

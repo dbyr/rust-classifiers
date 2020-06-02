@@ -1,10 +1,5 @@
 use rand::Rng;
 use std::str::from_utf8;
-use std::str;
-use std::io::Result as IOResult;
-use std::io::Write;
-use abomonation::Abomonation;
-use abomonation::unsafe_abomonate;
 use f64;
 
 use crate::euclidean_distance::EuclideanDistance;
@@ -20,8 +15,8 @@ use std::fmt::{
     Formatter
 };
 
-// #[derive(Debug, PartialEq, Default, Clone)]
-#[derive(PartialEq, Default, Clone)]
+// abomonation required to use datatype with timely
+#[derive(PartialEq, Default, Clone, Abomonation)]
 pub struct Point {
     x: f64,
     y: f64
@@ -132,9 +127,6 @@ impl Random for Point {
     }
 }
 
-// implement the abomonation trait for use with with timely
-unsafe_abomonate!(Point : x, y);
-
 #[cfg(test)]
 mod tests {
     use crate::euclidean_distance::EuclideanDistance;
@@ -182,7 +174,7 @@ mod tests {
         assert_eq!(Point::new(5.0, 8.0), added);
 
         // test scalar division
-        let divd = point2.scalar_div(&2.0);
+        let divd = point2.scalar_div(2.0);
         assert_eq!(Point::new(2.0, 3.0), divd);
     }
 }

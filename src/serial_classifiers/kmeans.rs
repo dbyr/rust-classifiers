@@ -214,7 +214,7 @@ where T: EuclideanDistance + PartialEq + Clone {
     fn train_from_file(
         &mut self, 
         file: &mut File, 
-        parser: &Fn(&Vec<u8>) -> Result<T, TrainingError>
+        parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError> {
         let mut data = Vec::new();
         let reader = BufReader::new(file);
