@@ -14,7 +14,8 @@ use crate::common::{
 #[derive(Debug)]
 enum Initiliser {
     Default,
-    PP
+    PP,
+    Parallel
 }
 
 #[derive(Debug)]
@@ -36,13 +37,19 @@ where T: EuclideanDistance + PartialEq + Clone {
         KMeans{categories: None, k: k, trainer: Initiliser::PP}
     }
 
+    // get a kmeans parallel object
+    pub fn new_parallel(k: usize) -> KMeans<T> {
+        KMeans{categories: None, k: k, trainer: Initiliser::Parallel}
+    }
+
     // private methods for use during training
 
     // trains the classifier with the correct method
     fn initialise_with_appropriate_method(&mut self, samples: &Vec<T>) {
         match self.trainer {
             Initiliser::Default => self.get_random_centroids(samples),
-            Initiliser::PP => self.get_weighted_random_centroids(samples)
+            Initiliser::PP => self.get_weighted_random_centroids(samples),
+            Initiliser::Parallel => self.get_centoids_by_oversampling(samples)
         }
     }
     
@@ -72,6 +79,36 @@ where T: EuclideanDistance + PartialEq + Clone {
         }
     }
 
+    // for use with plus plus and parallel selection algorithms
+    // calculates the new smallest distance of the samples to the
+    // thus-far-selected points and returns the sum of the weights
+    fn calculate_weights(
+        cats: &Vec<T>,
+        samples: &Vec<T>, 
+        prob_list: &mut HashMap<usize, f64>,
+        newest_cat: usize
+    ) -> usize {
+        // weight the next set of values
+        let mut weight_total = 0;
+        for (i, value) in samples.iter().enumerate() {
+            if cats.contains(&value) {
+                continue;
+            }
+            let distance = cats[newest_cat].distance(value);
+
+            // use the closest of the currently selected centroids
+            if let Some(v) = prob_list.get_mut(&i) {
+                if distance < *v {
+                    *v = distance;
+                }
+            } else {
+                prob_list.insert(i, distance);
+            }
+            weight_total += prob_list[&i].powi(2) as usize;
+        }
+        weight_total
+    }
+
     // gets initial centroids by means of KMeans++
     fn get_weighted_random_centroids(&mut self, samples: &Vec<T>) {
         // can't do anything if there is no data
@@ -83,7 +120,6 @@ where T: EuclideanDistance + PartialEq + Clone {
         self.categories = Some(Box::new(Vec::new()));
 
         // select one random value initially
-        let mut taken = Vec::new();
         let mut generator = rand::thread_rng();
         let mut prob_list = HashMap::<usize, f64>::new();
         let mut selection: usize = generator.gen_range(0, samples.len());
@@ -91,26 +127,13 @@ where T: EuclideanDistance + PartialEq + Clone {
 
         // continue to select values based on weighted probablity
         categories.push(samples[selection].clone());
-        taken.push(selection);
         for _ in 0..(self.k - 1) {
-            // weight the next set of values
-            let mut weight_total = 0;
-            for (i, value) in samples.iter().enumerate() {
-                if taken.contains(&i) {
-                    continue;
-                }
-                let distance = categories[categories.len() - 1].distance(value);
-
-                // use the closest of the currently selected centroids
-                if let Some(v) = prob_list.get_mut(&i) {
-                    if distance < *v {
-                        *v = distance;
-                    }
-                } else {
-                    prob_list.insert(i, distance);
-                }
-                weight_total += prob_list[&i].powi(2) as usize;
-            }
+            let weight_total = Self::calculate_weights(
+                categories,
+                samples, 
+                &mut prob_list, 
+                categories.len() - 1
+            );
 
             // now select one at random
             let mut remainder = generator.gen_range(0, weight_total) as f64;
@@ -123,8 +146,54 @@ where T: EuclideanDistance + PartialEq + Clone {
             }
             prob_list.remove(&selection);
             categories.push(samples[selection].clone());
-            taken.push(selection);
         }
+    }
+
+    // gets initial centroids by oversampling (http://arxiv.org/abs/1203.6402)
+    fn get_centoids_by_oversampling(&mut self, samples: &Vec<T>) {
+        // can't do anything if there is no data
+        if samples.len() == 0 || samples.len() < self.k {
+            return;
+        }
+
+        // select one random value initially
+        let mut taken = Vec::new();
+        let mut generator = rand::thread_rng();
+        let mut prob_list = HashMap::<usize, f64>::new();
+
+        // continue to select values based on weighted probablity
+        taken.push(samples[generator.gen_range(0, samples.len())].clone());
+        let mut weight_total = Self::calculate_weights(
+            &taken,
+            samples,
+            &mut prob_list,
+            0
+        );
+        for i in 0..(weight_total as f64).log10() as usize {
+            let mut selections = Vec::new();
+            for (index, dist) in prob_list.iter() {
+                let prob = generator.gen_range(0.0, 1.0);
+                let select = (dist.powi(2) / weight_total as f64) * self.k as f64;
+                println!("select = {}", select);
+                if prob < select {
+                    taken.push(samples[*index].clone());
+                    selections.push(taken.len() - 1);
+                }
+            }
+            for selection in selections {
+                println!("removing selection {}", selection);
+                prob_list.remove(&selection);
+                weight_total = Self::calculate_weights(
+                    &taken, 
+                    samples, 
+                    &mut prob_list, 
+                    selection
+                );
+            }
+            println!("Finished round {}", i);
+        }
+        println!("samples.len() = {}\ntaken.len() = {}", samples.len(), taken.len());
+        self.get_weighted_random_centroids(&taken);
     }
 
     fn categorise(&self, datum: &T) -> Result<usize, TrainingError> {
