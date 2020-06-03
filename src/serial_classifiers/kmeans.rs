@@ -1,6 +1,5 @@
 use rand::Rng;
 use std::f64;
-use std::hash::Hash;
 use std::collections::{
     HashMap,
     HashSet
@@ -170,7 +169,7 @@ where T: EuclideanDistance + PartialEq + Clone {
         let initial = generator.gen_range(0, samples.len());
         taken.insert(initial);
 
-        // continue to select values based on weighted probablity
+        // get initial weight to determine num. iterations
         let mut weight_total = Self::calculate_weights(
             &taken,
             samples,
@@ -178,8 +177,11 @@ where T: EuclideanDistance + PartialEq + Clone {
             initial
         );
 
+        // oversample centres (achieve approx. klog(initial_weight))
         for _ in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
+
+            // sample independantly proportional to distance from a centre
             for (index, dist) in prob_list.iter() {
                 let prob = generator.gen_range(0.0, 1.0);
                 let select = (dist.powi(2) / weight_total as f64) * self.k as f64;
@@ -188,6 +190,8 @@ where T: EuclideanDistance + PartialEq + Clone {
                     selections.push(*index);
                 }
             }
+
+            // update the smallest distance to any point
             for selection in selections {
                 prob_list.remove(&selection);
                 weight_total = Self::calculate_weights(
@@ -198,7 +202,8 @@ where T: EuclideanDistance + PartialEq + Clone {
                 );
             }
         }
-        println!("samples.len() = {}\ntaken.len() = {}", samples.len(), taken.len());
+
+        // find the real initial centroids using kmeans++
         let mut sampled = Vec::new();
         for i in taken {
             sampled.push(samples[i].clone());
