@@ -1,6 +1,10 @@
 use rand::Rng;
 use std::f64;
-use std::collections::HashMap;
+use std::hash::Hash;
+use std::collections::{
+    HashMap,
+    HashSet
+};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -83,7 +87,7 @@ where T: EuclideanDistance + PartialEq + Clone {
     // calculates the new smallest distance of the samples to the
     // thus-far-selected points and returns the sum of the weights
     fn calculate_weights(
-        cats: &Vec<T>,
+        cats: &HashSet<usize>,
         samples: &Vec<T>, 
         prob_list: &mut HashMap<usize, f64>,
         newest_cat: usize
@@ -91,10 +95,10 @@ where T: EuclideanDistance + PartialEq + Clone {
         // weight the next set of values
         let mut weight_total = 0;
         for (i, value) in samples.iter().enumerate() {
-            if cats.contains(&value) {
+            if cats.contains(&i) {
                 continue;
             }
-            let distance = cats[newest_cat].distance(value);
+            let distance = samples[newest_cat].distance(value);
 
             // use the closest of the currently selected centroids
             if let Some(v) = prob_list.get_mut(&i) {
@@ -120,19 +124,21 @@ where T: EuclideanDistance + PartialEq + Clone {
         self.categories = Some(Box::new(Vec::new()));
 
         // select one random value initially
+        let mut taken = HashSet::new();
         let mut generator = rand::thread_rng();
         let mut prob_list = HashMap::<usize, f64>::new();
         let mut selection: usize = generator.gen_range(0, samples.len());
         let categories = self.categories.as_mut().unwrap();
 
         // continue to select values based on weighted probablity
+        taken.insert(selection);
         categories.push(samples[selection].clone());
         for _ in 0..(self.k - 1) {
             let weight_total = Self::calculate_weights(
-                categories,
+                &taken,
                 samples, 
                 &mut prob_list, 
-                categories.len() - 1
+                selection
             );
 
             // now select one at random
@@ -145,6 +151,7 @@ where T: EuclideanDistance + PartialEq + Clone {
                 }
             }
             prob_list.remove(&selection);
+            taken.insert(selection);
             categories.push(samples[selection].clone());
         }
     }
@@ -157,31 +164,31 @@ where T: EuclideanDistance + PartialEq + Clone {
         }
 
         // select one random value initially
-        let mut taken = Vec::new();
+        let mut taken = HashSet::new();
         let mut generator = rand::thread_rng();
         let mut prob_list = HashMap::<usize, f64>::new();
+        let initial = generator.gen_range(0, samples.len());
+        taken.insert(initial);
 
         // continue to select values based on weighted probablity
-        taken.push(samples[generator.gen_range(0, samples.len())].clone());
         let mut weight_total = Self::calculate_weights(
             &taken,
             samples,
             &mut prob_list,
-            0
+            initial
         );
-        for i in 0..(weight_total as f64).log10() as usize {
+
+        for _ in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
             for (index, dist) in prob_list.iter() {
                 let prob = generator.gen_range(0.0, 1.0);
                 let select = (dist.powi(2) / weight_total as f64) * self.k as f64;
-                println!("select = {}", select);
                 if prob < select {
-                    taken.push(samples[*index].clone());
-                    selections.push(taken.len() - 1);
+                    taken.insert(*index);
+                    selections.push(*index);
                 }
             }
             for selection in selections {
-                println!("removing selection {}", selection);
                 prob_list.remove(&selection);
                 weight_total = Self::calculate_weights(
                     &taken, 
@@ -190,10 +197,13 @@ where T: EuclideanDistance + PartialEq + Clone {
                     selection
                 );
             }
-            println!("Finished round {}", i);
         }
         println!("samples.len() = {}\ntaken.len() = {}", samples.len(), taken.len());
-        self.get_weighted_random_centroids(&taken);
+        let mut sampled = Vec::new();
+        for i in taken {
+            sampled.push(samples[i].clone());
+        }
+        self.get_weighted_random_centroids(&sampled);
     }
 
     fn categorise(&self, datum: &T) -> Result<usize, TrainingError> {
