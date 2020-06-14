@@ -1,4 +1,4 @@
-pub trait EuclideanDistance<T> {
+pub trait EuclideanDistance<Dummy = Self> {
     // get the distance between this point and the other
     fn distance(&self, other: &Self) -> f64;
 
@@ -21,7 +21,7 @@ pub trait EuclideanDistance<T> {
 macro_rules! impl_euclidean_distance {
     // for use with formal types
     ( $t:ident: $($v:ident),+ ) => {
-        impl EuclideanDistance<$t> for $t {
+        impl EuclideanDistance for $t {
             fn distance(&self, other: &$t) -> f64 {
                 let mut distance = 0.0;
                 $(distance += ((self.$v - other.$v) as f64).powi(2);)*
