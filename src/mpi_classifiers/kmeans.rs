@@ -8,10 +8,7 @@ use crate::common::{
 
 use rand::Rng;
 use std::fs::File;
-use std::collections::{
-    HashMap,
-    HashSet
-};
+use std::collections::HashMap;
 use mpi::{
     traits::*,
     topology::SystemCommunicator
@@ -28,7 +25,8 @@ fn get_world_info(world: &SystemCommunicator) -> (i32, i32) {
     (world.rank(), world.size())
 }
 
-impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence {
+impl<T> MPIKMeans<T> where T: Default + Clone
++ EuclideanDistance + Equivalence + PartialEq {
 
     fn update_weights(
         samples: &Vec<T>,
@@ -65,7 +63,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence 
         // each process selects one point at random
         let mut generator = rand::thread_rng();
         let in_range = data.len();
-        let mut selection = &data[generator.gen_range(0, in_range)];
+        let selection = &data[generator.gen_range(0, in_range)];
 
         // then sends it to proc 0 to decide which is the initial
         let (my_rank, size) = get_world_info(world);
@@ -90,20 +88,22 @@ impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence 
     // }
 
     // sends the chosen samples for this iteration
-    fn send_selected(world: &SystemCommunicator, samples: &Vec<T>) -> Vec<T> {
+    fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
         let (my_rank, size) = get_world_info(world);
-        let mut selected_size = vec!(0_usize; size as usize);
+        let mut selected_size = vec!(samples.len(); size as usize);
         let mut additional = Vec::new();
         for i in 0..size {
             // discover how many items were selected
-            let mut proc = world.process_at_rank(i);
-            proc.broadcast_into(&mut selected_size[i]);
+            let proc = world.process_at_rank(i);
+            proc.broadcast_into(&mut selected_size[i as usize]);
 
             // collect that many items
-            let mut added = vec!(T::default(); selected_size[i]);
-            proc.broadcast_into(&mut added);
-            if my_rank != i {
-                additional.append(&added);
+            let mut added = vec!(T::default(); selected_size[i as usize]);
+            if my_rank == i {
+                proc.broadcast_into(samples.as_mut_slice());
+            } else {
+                proc.broadcast_into(added.as_mut_slice());
+                additional.append(&mut added);
             }
         }
         additional
@@ -124,40 +124,39 @@ impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence 
         let initial = self.select_initial(world, data);
 
         // get initial weight to determine num. iterations
-        Self::update_weights(data, &mut prob_list, initial);
+        Self::update_weights(data, &mut prob_list, &initial);
         let mut weight_total = Self::sum_of_weights_squared(&prob_list);
         let mut global_weights = vec!(0; size as usize);
-        world.all_to_all(&vec!(weight_total), &mut global_weights);
+        let mut generator = rand::thread_rng();
+        world.all_to_all_into(
+            vec!(weight_total).as_slice(),
+            global_weights.as_mut_slice()
+        );
         weight_total = global_weights.into_iter().sum();
 
         // oversample centres (achieve approx. klog(initial_weight))
         for _ in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
+            let mut indices = Vec::new();
 
             // sample independantly proportional to distance from a centre
             for (index, dist) in prob_list.iter() {
                 let prob = generator.gen_range(0.0, 1.0);
                 let select = (dist.powi(2) * self.k as f64) / weight_total as f64;
                 if prob < select {
-                    selections.push(*index);
+                    selections.push(data[*index].clone());
+                    indices.push(*index);
                 }
             }
+            for index in indices {
+                prob_list.remove(&index);
+            }
 
-            let global_selections = Self::send_selected(world, &selections);
+            let mut global_selections = Self::send_selected(world, &mut selections);
 
             // update the smallest distance to any point
-            for selection in selections {
-                prob_list.remove(&selection);
-                Self::update_weights(
-                    data,
-                    &mut prob_list,
-                    &data[selection]
-                );
-                if my_rank == ROOT {
-                    taken.push(data[selection].clone());
-                }
-            }
-            for selection in global_selections {
+            global_selections.append(&mut selections);
+            for selection in global_selections.iter() {
                 Self::update_weights(
                     data,
                     &mut prob_list,
@@ -167,11 +166,14 @@ impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence 
 
             // the root will calculate the initial centroids
             if my_rank == ROOT {
-                taken.append(&global_selections);
+                taken.append(&mut global_selections);
             }
             weight_total = Self::sum_of_weights_squared(&prob_list);
             global_weights = vec!(0; size as usize);
-            world.all_to_all(&vec!(weight_total), &mut global_weights);
+            world.all_to_all_into(
+                vec!(weight_total).as_slice(),
+                global_weights.as_mut_slice()
+            );
             weight_total = global_weights.into_iter().sum();
         }
 
@@ -183,26 +185,28 @@ impl<T> MPIKMeans<T> where T: Default + Clone + EuclideanDistance + Equivalence 
             let mut trainer = KMeans::new_pp(self.k);
             trainer.train(&taken);
             self.categories = Some(Box::new(trainer.categories().unwrap().clone()));
+        } else {
+            self.categories = Some(Box::new(vec!(T::default(); self.k)));
         }
-        root_proc.broadcast_into(&mut self.categories);
+        root_proc.broadcast_into(self.categories.as_mut().unwrap().as_mut_slice());
     }
 }
 
 impl<T> UnsupervisedClassifier<T> for MPIKMeans<T>
 where T: Clone + EuclideanDistance {
-    fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
+    fn train(&mut self, _data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         Err(TrainingError::InvalidClassifier)
     }
 
     fn train_from_file(
         &mut self, 
-        file: &mut File, 
-        parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
+        _file: &mut File,
+        _parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError> {
         Err(TrainingError::InvalidClassifier)
     }
 
-    fn classify(&self, datum: &T) -> Result<usize, ClassificationError> {
+    fn classify(&self, _datum: &T) -> Result<usize, ClassificationError> {
         Err(ClassificationError::ClassifierInvalid)
     }
 }
