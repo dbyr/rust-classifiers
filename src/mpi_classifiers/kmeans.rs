@@ -8,26 +8,27 @@ use crate::common::{
 
 use rand::Rng;
 use std::{
-    cell::RefCell,
     f64,
     fs::File,
     collections::HashMap,
-    mem::size_of,
-    convert::TryInto
+    mem::size_of
 };
 use mpi::{
-    ffi,
+    // ffi,
     traits::*,
     topology::SystemCommunicator,
-    datatype::UserDatatype,
-    point_to_point::Status,
-    request::{
-        Request,
-        Scope
-    }
+    // point_to_point::Status,
+    // request::{
+    //     Request,
+    //     Scope
+    // },
+    datatype::{
+        UserDatatype,
+        PartitionMut
+    },
 };
-use mpi_sys;
-use std::cell::RefMut;
+// use mpi_sys;
+use std::borrow::Borrow;
 
 const ROOT: i32 = 0;
 
@@ -39,41 +40,41 @@ struct SumCountPair {
 }
 
 // adapted from unpublished source of rsmpi
-unsafe fn is_null(request: ffi::MPI_Request) -> bool {
-    unsafe {
-        request == ffi::RSMPI_REQUEST_NULL
-    }
-}
-
-// adapted from unpublished source of rsmpi
-unsafe fn wait_any<'a, S: Scope<'a>>(requests: &mut Vec<Request<'a, S>>) -> Option<(usize, Status)> {
-    let mut mpi_requests: Vec<_> = requests.iter().map(|r| r.as_raw()).collect();
-    let mut index: i32 = mpi_sys::MPI_UNDEFINED;
-    let size: i32 = mpi_requests
-        .len()
-        .try_into()
-        .expect("Error while casting usize to i32");
-    let status = ffi::RSMPI_STATUS_IGNORE;
-    unsafe {
-        ffi::MPI_Waitany(
-            size,
-            mpi_requests.as_mut_ptr(),
-            &mut index,
-            status
-        );
-    }
-    if index != mpi_sys::MPI_UNDEFINED {
-        let u_index: usize = index.try_into().expect("Error while casting i32 to usize");
-        assert!(is_null(mpi_requests[u_index]));
-        let r = requests.remove(u_index);
-        unsafe {
-            r.into_raw();
-        }
-        Some((u_index, Status::from_raw(*status)))
-    } else {
-        None
-    }
-}
+// unsafe fn is_null(request: ffi::MPI_Request) -> bool {
+//     unsafe {
+//         request == ffi::RSMPI_REQUEST_NULL
+//     }
+// }
+//
+// // adapted from unpublished source of rsmpi
+// unsafe fn wait_any<'a, S: Scope<'a>>(requests: &mut Vec<Request<'a, S>>) -> Option<(usize, Status)> {
+//     let mut mpi_requests: Vec<_> = requests.iter().map(|r| r.as_raw()).collect();
+//     let mut index: i32 = mpi_sys::MPI_UNDEFINED;
+//     let size: i32 = mpi_requests
+//         .len()
+//         .try_into()
+//         .expect("Error while casting usize to i32");
+//     let status = ffi::RSMPI_STATUS_IGNORE;
+//     unsafe {
+//         ffi::MPI_Waitany(
+//             size,
+//             mpi_requests.as_mut_ptr(),
+//             &mut index,
+//             status
+//         );
+//     }
+//     if index != mpi_sys::MPI_UNDEFINED {
+//         let u_index: usize = index.try_into().expect("Error while casting i32 to usize");
+//         assert!(is_null(mpi_requests[u_index]));
+//         let r = requests.remove(u_index);
+//         unsafe {
+//             r.into_raw();
+//         }
+//         Some((u_index, Status::from_raw(*status)))
+//     } else {
+//         None
+//     }
+// }
 
 unsafe impl Equivalence for SumCountPair {
     type Out = UserDatatype;
@@ -187,52 +188,29 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     // }
 
     // sends the chosen samples for this iteration
-    unsafe fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
+    fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
         let (my_rank, size) = get_world_info(world);
-        let mut selected_size = vec!(samples.len(); size as usize);
-        let mut additional = Vec::new();
-        let mut selected = Vec::new();
+        let root_proc = world.process_at_rank(ROOT);
+        let my_size = samples.len() as u64;
 
-        // discover how many items were selected
-        mpi::request::scope(|scope| {
-            let mut watchers = Vec::new();
-            for (i, selected) in selected_size.iter_mut().enumerate() {
-                let proc = world.process_at_rank(i as i32);
-                watchers.push(proc.immediate_broadcast_into(
-                    scope,
-                    selected
-                ));
-            }
-            while let Some((i, _)) = wait_any(&mut watchers) {
-                selected.push(vec!(T::default(); selected_size[i as usize]));
-            }
-        });
+        // send the sizes of each process to each other
+        let mut sizes: Vec<i32> = vec!(0; size as usize);
+        world.all_gather_into(&my_size, sizes.as_mut_slice());
+        let mut displacements = vec!(0; size as usize);
+        for i in 1..size {
+            let prev = (i - 1) as usize;
+            displacements[i as usize] = sizes[prev] + displacements[prev];
+        }
 
-        // receive the selected items
-        mpi::request::scope(|scope| {
-            let mut watchers = Vec::new();
-            for i in 0..size {
-                let proc = world.process_at_rank(i);
-                watchers.push(if my_rank == i {
-                    proc.immediate_broadcast_into(
-                        scope,
-                        samples.as_mut_slice()
-                    )
-                } else {
-                    proc.immediate_broadcast_into(
-                        scope,
-                        selected[i as usize].as_mut_slice()
-                    )
-                });
-            }
-            for i in 0..size {
-                watchers[i as usize].wait_without_status();
-                if my_rank != i {
-                    additional.append(&mut selected[i as usize]);
-                }
-            }
-        });
-        additional
+        // send the samples of each process to each other
+        let mut global_samples = vec!(T::default(); sizes.iter().sum::<i32>() as usize);
+        let mut buffer = PartitionMut::new(
+            global_samples.as_mut_slice(),
+            sizes.borrow(),
+            displacements.borrow()
+        );
+        world.all_gather_varcount_into(samples.as_slice(), &mut buffer);
+        global_samples
     }
 
     // oversample points to form initial cluster approximation
@@ -284,7 +262,6 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             );
 
             // update the smallest distance to any point
-            global_selections.append(&mut selections);
             for selection in global_selections.iter() {
                 Self::update_weights(
                     data,
