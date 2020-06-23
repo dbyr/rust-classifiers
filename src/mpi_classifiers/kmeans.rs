@@ -7,14 +7,86 @@ use crate::common::{
 };
 
 use rand::Rng;
-use std::fs::File;
-use std::collections::HashMap;
-use mpi::{
-    traits::*,
-    topology::SystemCommunicator
+use std::{
+    cell::RefCell,
+    f64,
+    fs::File,
+    collections::HashMap,
+    mem::size_of,
+    convert::TryInto
 };
+use mpi::{
+    ffi,
+    traits::*,
+    topology::SystemCommunicator,
+    datatype::UserDatatype,
+    point_to_point::Status,
+    request::{
+        Request,
+        Scope
+    }
+};
+use mpi_sys;
+use std::cell::RefMut;
 
 const ROOT: i32 = 0;
+
+// used to transfer the
+#[derive(Clone, Default)]
+struct SumCountPair {
+    sum: f64,
+    count: u64
+}
+
+// adapted from unpublished source of rsmpi
+unsafe fn is_null(request: ffi::MPI_Request) -> bool {
+    unsafe {
+        request == ffi::RSMPI_REQUEST_NULL
+    }
+}
+
+// adapted from unpublished source of rsmpi
+unsafe fn wait_any<'a, S: Scope<'a>>(requests: &mut Vec<Request<'a, S>>) -> Option<(usize, Status)> {
+    let mut mpi_requests: Vec<_> = requests.iter().map(|r| r.as_raw()).collect();
+    let mut index: i32 = mpi_sys::MPI_UNDEFINED;
+    let size: i32 = mpi_requests
+        .len()
+        .try_into()
+        .expect("Error while casting usize to i32");
+    let status = ffi::RSMPI_STATUS_IGNORE;
+    unsafe {
+        ffi::MPI_Waitany(
+            size,
+            mpi_requests.as_mut_ptr(),
+            &mut index,
+            status
+        );
+    }
+    if index != mpi_sys::MPI_UNDEFINED {
+        let u_index: usize = index.try_into().expect("Error while casting i32 to usize");
+        assert!(is_null(mpi_requests[u_index]));
+        let r = requests.remove(u_index);
+        unsafe {
+            r.into_raw();
+        }
+        Some((u_index, Status::from_raw(*status)))
+    } else {
+        None
+    }
+}
+
+unsafe impl Equivalence for SumCountPair {
+    type Out = UserDatatype;
+
+    fn equivalent_datatype() -> Self::Out {
+        UserDatatype::structured(
+            2,
+            &[1, 1],
+            &[size_of::<u64>() as mpi::Address, 0],
+            &[&f64::equivalent_datatype(), &u64::equivalent_datatype()]
+        )
+    }
+}
 
 pub struct MPIKMeans<T> where T: Clone + EuclideanDistance {
     categories: Option<Box<Vec<T>>>,
@@ -82,30 +154,84 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         final_initial
     }
 
+    fn categorise(&self, datum: &T) -> Result<usize, TrainingError> {
+        let mut result = Err(TrainingError::InvalidClassifier);
+        let mut distance = f64::MAX;
+        let categories = match &self.categories {
+            Some(c) => c,
+            None => return result
+        };
+        for (i, cat) in categories.iter().enumerate() {
+            let cur_dist = cat.distance(datum);
+            if cur_dist < distance {
+                distance = cur_dist;
+                result = Ok(i);
+            }
+        }
+        return result;
+    }
+
+    fn categorise_all(&self, data: &Vec<T>) -> Result<Vec<usize>, TrainingError> {
+        let mut cats = Vec::new();
+        for datum in data.iter() {
+            cats.push(self.categorise(datum)?);
+        }
+        return Ok(cats);
+    }
+
     // perform Lloyd's iteration
     // fn lloyds_iteration(&mut self, world: &SystemCommunicator, data: &Vec<T>) {
-    //
+    //     let cats = categorise_all(data);
+    //     let mut sum_counts = vec!(SumCountPair::default(); self.k);
+    //     for
     // }
 
     // sends the chosen samples for this iteration
-    fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
+    unsafe fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
         let (my_rank, size) = get_world_info(world);
         let mut selected_size = vec!(samples.len(); size as usize);
         let mut additional = Vec::new();
-        for i in 0..size {
-            // discover how many items were selected
-            let proc = world.process_at_rank(i);
-            proc.broadcast_into(&mut selected_size[i as usize]);
+        let mut selected = Vec::new();
 
-            // collect that many items
-            let mut added = vec!(T::default(); selected_size[i as usize]);
-            if my_rank == i {
-                proc.broadcast_into(samples.as_mut_slice());
-            } else {
-                proc.broadcast_into(added.as_mut_slice());
-                additional.append(&mut added);
+        // discover how many items were selected
+        mpi::request::scope(|scope| {
+            let mut watchers = Vec::new();
+            for (i, selected) in selected_size.iter_mut().enumerate() {
+                let proc = world.process_at_rank(i as i32);
+                watchers.push(proc.immediate_broadcast_into(
+                    scope,
+                    selected
+                ));
             }
-        }
+            while let Some((i, _)) = wait_any(&mut watchers) {
+                selected.push(vec!(T::default(); selected_size[i as usize]));
+            }
+        });
+
+        // receive the selected items
+        mpi::request::scope(|scope| {
+            let mut watchers = Vec::new();
+            for i in 0..size {
+                let proc = world.process_at_rank(i);
+                watchers.push(if my_rank == i {
+                    proc.immediate_broadcast_into(
+                        scope,
+                        samples.as_mut_slice()
+                    )
+                } else {
+                    proc.immediate_broadcast_into(
+                        scope,
+                        selected[i as usize].as_mut_slice()
+                    )
+                });
+            }
+            for i in 0..size {
+                watchers[i as usize].wait_without_status();
+                if my_rank != i {
+                    additional.append(&mut selected[i as usize]);
+                }
+            }
+        });
         additional
     }
 
@@ -129,7 +255,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         let mut global_weights = vec!(0; size as usize);
         let mut generator = rand::thread_rng();
         world.all_to_all_into(
-            vec!(weight_total).as_slice(),
+            vec!(weight_total; size as usize).as_slice(),
             global_weights.as_mut_slice()
         );
         weight_total = global_weights.into_iter().sum();
@@ -152,7 +278,10 @@ impl<T> MPIKMeans<T> where T: Default + Clone
                 prob_list.remove(&index);
             }
 
-            let mut global_selections = Self::send_selected(world, &mut selections);
+            let mut global_selections = Self::send_selected(
+                world,
+                &mut selections
+            );
 
             // update the smallest distance to any point
             global_selections.append(&mut selections);
@@ -171,7 +300,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             weight_total = Self::sum_of_weights_squared(&prob_list);
             global_weights = vec!(0; size as usize);
             world.all_to_all_into(
-                vec!(weight_total).as_slice(),
+                vec!(weight_total; size as usize).as_slice(),
                 global_weights.as_mut_slice()
             );
             weight_total = global_weights.into_iter().sum();
