@@ -17,6 +17,7 @@ use mpi::{
     // ffi,
     traits::*,
     topology::SystemCommunicator,
+    collective::UserOperation,
     // point_to_point::Status,
     // request::{
     //     Request,
@@ -34,9 +35,27 @@ const ROOT: i32 = 0;
 
 // used to transfer the
 #[derive(Clone, Default)]
-struct SumCountPair {
-    sum: f64,
+struct SumCountPair<T: EuclideanDistance> {
+    sum: T,
     count: u64
+}
+
+impl<T: EuclideanDistance> SumCountPair<T> {
+    fn plus(&mut self, val: &T) {
+        self.sum = self.sum.add(val);
+        self.count += 1;
+    }
+
+    fn combine(&self, other: &SumCountPair<T>) -> SumCountPair<T> {
+        SumCountPair{
+            sum: self.sum.add(&other.sum),
+            count: self.count + other.count
+        }
+    }
+
+    fn result(&self) -> T {
+        self.sum.scalar_div(self.count as f64)
+    }
 }
 
 // adapted from unpublished source of rsmpi
@@ -76,7 +95,8 @@ struct SumCountPair {
 //     }
 // }
 
-unsafe impl Equivalence for SumCountPair {
+unsafe impl<T> Equivalence for SumCountPair<T>
+where T: Equivalence + EuclideanDistance {
     type Out = UserDatatype;
 
     fn equivalent_datatype() -> Self::Out {
@@ -84,7 +104,7 @@ unsafe impl Equivalence for SumCountPair {
             2,
             &[1, 1],
             &[size_of::<u64>() as mpi::Address, 0],
-            &[&f64::equivalent_datatype(), &u64::equivalent_datatype()]
+            &[&T::equivalent_datatype(), &u64::equivalent_datatype()]
         )
     }
 }
@@ -181,11 +201,56 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     }
 
     // perform Lloyd's iteration
-    // fn lloyds_iteration(&mut self, world: &SystemCommunicator, data: &Vec<T>) {
-    //     let cats = categorise_all(data);
-    //     let mut sum_counts = vec!(SumCountPair::default(); self.k);
-    //     for
-    // }
+    fn lloyds_iteration(
+        &mut self,
+        world: &SystemCommunicator,
+        data: &Vec<T>
+    ) -> Result<(), TrainingError> {
+        let (my_rank, size) = get_world_info(world);
+
+        // continue until means no longer update
+        loop {
+
+            // calculate local values
+            let cats = self.categorise_all(data)?;
+            let mut local_scs: Vec<SumCountPair<T>> =
+                vec!(SumCountPair::default(); self.k);
+            let mut gathered =
+                vec!(SumCountPair::<T>::default(); self.k * self.k);
+            let mut global_scs: Vec<SumCountPair<T>> =
+                vec!(SumCountPair::default(); self.k);
+            for (i, cat) in cats.iter().enumerate() {
+                local_scs[*cat].plus(&data[i]);
+            }
+
+            // combine with other procs into global values
+            world.all_gather_into(
+                local_scs.as_slice(),
+                gathered.as_mut_slice()
+            );
+            for i in 0..self.k {
+                for j in 0..self.k {
+                    global_scs[i] = global_scs[i].combine(&global_scs[i * j]);
+                }
+            }
+
+            // check if the means updated
+            let mut new_means: Vec<T> = global_scs
+                .into_iter()
+                .map(|sc| {sc.result()})
+                .collect();
+            let mut cur_cats = self.categories.as_mut().unwrap();
+            let finish = new_means
+                .iter()
+                .enumerate()
+                .all(|(i, val)| {*val == cur_cats[i]});
+            for (cat, mean) in cur_cats.iter_mut().zip(new_means) {
+                *cat = mean;
+            }
+            if finish { break; }
+        }
+        Ok(())
+    }
 
     // sends the chosen samples for this iteration
     fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
