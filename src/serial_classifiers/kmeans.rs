@@ -7,7 +7,7 @@ use std::collections::{
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::unsupervised_classifier::UnsupervisedClassifier;
+use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier;
 use crate::euclidean_distance::EuclideanDistance;
 use crate::common::{
     TrainingError,

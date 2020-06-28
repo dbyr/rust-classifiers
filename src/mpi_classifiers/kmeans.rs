@@ -1,5 +1,6 @@
 use crate::serial_classifiers::kmeans::KMeans;
-use crate::unsupervised_classifier::UnsupervisedClassifier;
+use crate::mpi_classifiers::unsupervised_classifier::UnsupervisedClassifier;
+use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier as SUC;
 use crate::euclidean_distance::EuclideanDistance;
 use crate::common::{
     TrainingError,
@@ -14,22 +15,17 @@ use std::{
     mem::size_of
 };
 use mpi::{
-    // ffi,
     traits::*,
     topology::SystemCommunicator,
     collective::UserOperation,
-    // point_to_point::Status,
-    // request::{
-    //     Request,
-    //     Scope
-    // },
     datatype::{
         UserDatatype,
         PartitionMut
     },
 };
-// use mpi_sys;
 use std::borrow::Borrow;
+use std::io::{BufRead, BufReader};
+use std::fmt::{Display, Debug};
 
 const ROOT: i32 = 0;
 
@@ -58,43 +54,6 @@ impl<T: EuclideanDistance> SumCountPair<T> {
     }
 }
 
-// adapted from unpublished source of rsmpi
-// unsafe fn is_null(request: ffi::MPI_Request) -> bool {
-//     unsafe {
-//         request == ffi::RSMPI_REQUEST_NULL
-//     }
-// }
-//
-// // adapted from unpublished source of rsmpi
-// unsafe fn wait_any<'a, S: Scope<'a>>(requests: &mut Vec<Request<'a, S>>) -> Option<(usize, Status)> {
-//     let mut mpi_requests: Vec<_> = requests.iter().map(|r| r.as_raw()).collect();
-//     let mut index: i32 = mpi_sys::MPI_UNDEFINED;
-//     let size: i32 = mpi_requests
-//         .len()
-//         .try_into()
-//         .expect("Error while casting usize to i32");
-//     let status = ffi::RSMPI_STATUS_IGNORE;
-//     unsafe {
-//         ffi::MPI_Waitany(
-//             size,
-//             mpi_requests.as_mut_ptr(),
-//             &mut index,
-//             status
-//         );
-//     }
-//     if index != mpi_sys::MPI_UNDEFINED {
-//         let u_index: usize = index.try_into().expect("Error while casting i32 to usize");
-//         assert!(is_null(mpi_requests[u_index]));
-//         let r = requests.remove(u_index);
-//         unsafe {
-//             r.into_raw();
-//         }
-//         Some((u_index, Status::from_raw(*status)))
-//     } else {
-//         None
-//     }
-// }
-
 unsafe impl<T> Equivalence for SumCountPair<T>
 where T: Equivalence + EuclideanDistance {
     type Out = UserDatatype;
@@ -119,7 +78,14 @@ fn get_world_info(world: &SystemCommunicator) -> (i32, i32) {
 }
 
 impl<T> MPIKMeans<T> where T: Default + Clone
-+ EuclideanDistance + Equivalence + PartialEq {
++ EuclideanDistance + Equivalence + PartialEq + Debug {
+
+    pub fn new(k: usize) -> Self {
+        MPIKMeans{
+            categories: None,
+            k: k
+        }
+    }
 
     fn update_weights(
         samples: &Vec<T>,
@@ -207,9 +173,9 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         data: &Vec<T>
     ) -> Result<(), TrainingError> {
         let (my_rank, size) = get_world_info(world);
-
+        let mut iters = 0;
         // continue until means no longer update
-        loop {
+        while iters < 1000 {
 
             // calculate local values
             let cats = self.categorise_all(data)?;
@@ -230,7 +196,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             );
             for i in 0..self.k {
                 for j in 0..self.k {
-                    global_scs[i] = global_scs[i].combine(&global_scs[i * j]);
+                    global_scs[i] = global_scs[i].combine(&gathered[i * j]);
                 }
             }
 
@@ -243,11 +209,12 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             let finish = new_means
                 .iter()
                 .enumerate()
-                .all(|(i, val)| {*val == cur_cats[i]});
+                .all(|(i, val)| { println!("Proc {} says new value[{}] = {:?}. Old val = {:?}", my_rank, i, *val, cur_cats[i]); *val == cur_cats[i]});
             for (cat, mean) in cur_cats.iter_mut().zip(new_means) {
                 *cat = mean;
             }
             if finish { break; }
+            iters += 1;
         }
         Ok(())
     }
@@ -255,8 +222,8 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     // sends the chosen samples for this iteration
     fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
         let (my_rank, size) = get_world_info(world);
-        let root_proc = world.process_at_rank(ROOT);
-        let my_size = samples.len() as u64;
+        // let root_proc = world.process_at_rank(ROOT);
+        let my_size = samples.len() as i32;
 
         // send the sizes of each process to each other
         let mut sizes: Vec<i32> = vec!(0; size as usize);
@@ -304,7 +271,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         weight_total = global_weights.into_iter().sum();
 
         // oversample centres (achieve approx. klog(initial_weight))
-        for _ in 0..(weight_total as f64).log10() as usize {
+        for iter_val in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
             let mut indices = Vec::new();
 
@@ -320,6 +287,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             for index in indices {
                 prob_list.remove(&index);
             }
+            println!("Proc {} took {}", my_rank, selections.len());
 
             let mut global_selections = Self::send_selected(
                 world,
@@ -354,6 +322,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         let root_proc = world.process_at_rank(ROOT);
         if my_rank == ROOT {
             let mut trainer = KMeans::new_pp(self.k);
+            println!("Sampled {} values", taken.len());
             trainer.train(&taken);
             self.categories = Some(Box::new(trainer.categories().unwrap().clone()));
         } else {
@@ -364,20 +333,44 @@ impl<T> MPIKMeans<T> where T: Default + Clone
 }
 
 impl<T> UnsupervisedClassifier<T> for MPIKMeans<T>
-where T: Clone + EuclideanDistance {
-    fn train(&mut self, _data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
-        Err(TrainingError::InvalidClassifier)
+where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
+    fn train(
+        &mut self,
+        world: &SystemCommunicator,
+        data: &Vec<T>
+    ) -> Result<Vec<T>, TrainingError> {
+        self.oversample_by_weight(world, data);
+        self.lloyds_iteration(world, data)?;
+        Ok(*self.categories.clone().unwrap())
     }
 
     fn train_from_file(
-        &mut self, 
-        _file: &mut File,
-        _parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
+        &mut self,
+        world: &SystemCommunicator,
+        file: &mut File,
+        parser: &dyn Fn(&Vec<u8>) -> Result<T, TrainingError>
     ) -> Result<Vec<T>, TrainingError> {
-        Err(TrainingError::InvalidClassifier)
+        let mut data = Vec::new();
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let buf = match line {
+                Ok(l) => l.into_bytes(),
+                Err(_) => return Err(TrainingError::FileReadFailed),
+            };
+            let val = parser(&buf)?;
+            data.push(val);
+        }
+        self.train(world, &data)
     }
 
-    fn classify(&self, _datum: &T) -> Result<usize, ClassificationError> {
-        Err(ClassificationError::ClassifierInvalid)
+    fn classify(&self, datum: &T) -> Result<usize, ClassificationError> {
+        if self.categories == None {
+            return Err(ClassificationError::ClassifierInvalid);
+        }
+        let result = self.categorise(datum);
+        match result {
+            Ok(i) => Ok(i),
+            Err(_) => Err(ClassificationError::ClassifierInvalid)
+        }
     }
 }
