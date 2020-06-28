@@ -175,7 +175,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         let (my_rank, size) = get_world_info(world);
         let mut iters = 0;
         // continue until means no longer update
-        while iters < 1000 {
+        while iters < 100 {
 
             // calculate local values
             let cats = self.categorise_all(data)?;
@@ -195,23 +195,24 @@ impl<T> MPIKMeans<T> where T: Default + Clone
                 gathered.as_mut_slice()
             );
             for i in 0..self.k {
+                let base = i * self.k;
                 for j in 0..self.k {
-                    global_scs[i] = global_scs[i].combine(&gathered[i * j]);
+                    global_scs[i] = global_scs[i].combine(&gathered[base + j]);
                 }
             }
 
             // check if the means updated
-            let mut new_means: Vec<T> = global_scs
-                .into_iter()
-                .map(|sc| {sc.result()})
-                .collect();
+            let mut finish = true;
             let mut cur_cats = self.categories.as_mut().unwrap();
-            let finish = new_means
-                .iter()
-                .enumerate()
-                .all(|(i, val)| { println!("Proc {} says new value[{}] = {:?}. Old val = {:?}", my_rank, i, *val, cur_cats[i]); *val == cur_cats[i]});
-            for (cat, mean) in cur_cats.iter_mut().zip(new_means) {
-                *cat = mean;
+            for (cur_cat, scs) in cur_cats.iter_mut().zip(global_scs) {
+                if scs.count == 0 {
+                    continue;
+                }
+                let new_mean = scs.result();
+                if *cur_cat != new_mean {
+                    finish = false;
+                }
+                *cur_cat = new_mean;
             }
             if finish { break; }
             iters += 1;
@@ -243,6 +244,42 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         );
         world.all_gather_varcount_into(samples.as_slice(), &mut buffer);
         global_samples
+    }
+
+    // initial centroid selection for kmeans++
+    fn get_weighted_random_centroids(&mut self, samples: &Vec<T>) {
+        // can't do anything if there is no data
+        if samples.len() == 0 || samples.len() < self.k {
+            return;
+        }
+
+        // reset the previous training, if any
+        self.categories = Some(Box::new(Vec::new()));
+
+        // select one random value initially
+        let mut generator = rand::thread_rng();
+        let mut prob_list = HashMap::<usize, f64>::new();
+        let mut selection: usize = generator.gen_range(0, samples.len());
+        let categories = self.categories.as_mut().unwrap();
+
+        // continue to select values based on weighted probablity
+        categories.push(samples[selection].clone());
+        for _ in 0..(self.k - 1) {
+            Self::update_weights(samples, &mut prob_list, &samples[selection]);
+            let weight_total = Self::sum_of_weights_squared(&prob_list);
+
+            // now select one at random
+            let mut remainder = generator.gen_range(0, weight_total) as f64;
+            for k in prob_list.keys() {
+                remainder -= prob_list[k].powi(2);
+                if remainder <= 0.0 {
+                    selection = *k;
+                    break;
+                }
+            }
+            prob_list.remove(&selection);
+            categories.push(samples[selection].clone());
+        }
     }
 
     // oversample points to form initial cluster approximation
@@ -287,7 +324,6 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             for index in indices {
                 prob_list.remove(&index);
             }
-            println!("Proc {} took {}", my_rank, selections.len());
 
             let mut global_selections = Self::send_selected(
                 world,
@@ -321,10 +357,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         // of the computation on a single machine
         let root_proc = world.process_at_rank(ROOT);
         if my_rank == ROOT {
-            let mut trainer = KMeans::new_pp(self.k);
-            println!("Sampled {} values", taken.len());
-            trainer.train(&taken);
-            self.categories = Some(Box::new(trainer.categories().unwrap().clone()));
+            self.get_weighted_random_centroids(&taken);
         } else {
             self.categories = Some(Box::new(vec!(T::default(); self.k)));
         }
