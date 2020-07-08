@@ -1,6 +1,4 @@
-use crate::serial_classifiers::kmeans::KMeans;
 use crate::mpi_classifiers::unsupervised_classifier::UnsupervisedClassifier;
-use crate::serial_classifiers::unsupervised_classifier::UnsupervisedClassifier as SUC;
 use crate::euclidean_distance::EuclideanDistance;
 use crate::common::{
     TrainingError,
@@ -17,7 +15,6 @@ use std::{
 use mpi::{
     traits::*,
     topology::SystemCommunicator,
-    collective::UserOperation,
     datatype::{
         UserDatatype,
         PartitionMut
@@ -25,7 +22,7 @@ use mpi::{
 };
 use std::borrow::Borrow;
 use std::io::{BufRead, BufReader};
-use std::fmt::{Display, Debug};
+use std::fmt::Debug;
 
 const ROOT: i32 = 0;
 
@@ -172,7 +169,6 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         world: &SystemCommunicator,
         data: &Vec<T>
     ) -> Result<(), TrainingError> {
-        let (my_rank, size) = get_world_info(world);
         let mut iters = 0;
         // continue until means no longer update
         while iters < 100 {
@@ -203,7 +199,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
 
             // check if the means updated
             let mut finish = true;
-            let mut cur_cats = self.categories.as_mut().unwrap();
+            let cur_cats = self.categories.as_mut().unwrap();
             for (cur_cat, scs) in cur_cats.iter_mut().zip(global_scs) {
                 if scs.count == 0 {
                     continue;
@@ -222,7 +218,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
 
     // sends the chosen samples for this iteration
     fn send_selected(world: &SystemCommunicator, samples: &mut Vec<T>) -> Vec<T> {
-        let (my_rank, size) = get_world_info(world);
+        let (_, size) = get_world_info(world);
         // let root_proc = world.process_at_rank(ROOT);
         let my_size = samples.len() as i32;
 
@@ -308,7 +304,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         weight_total = global_weights.into_iter().sum();
 
         // oversample centres (achieve approx. klog(initial_weight))
-        for iter_val in 0..(weight_total as f64).log10() as usize {
+        for _ in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
             let mut indices = Vec::new();
 
@@ -405,5 +401,104 @@ where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
             Ok(i) => Ok(i),
             Err(_) => Err(ClassificationError::ClassifierInvalid)
         }
+    }
+}
+
+// only allow this code in debug such that tests
+// can be run with mpi from the external example
+#[cfg(debug_assertions)]
+pub mod tests {
+    use super::MPIKMeans;
+    use crate::example_datatypes::point::Point;
+    use mpi::topology::{SystemCommunicator, Communicator};
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use crate::common::TrainingError;
+
+    static INPUT_FILE: &'static str = "./data/easy_clusters_rand";
+
+    fn get_convergence_sets() -> (Vec<Point>, Vec<Point>) {
+        let mut cats = vec!();
+        cats.push(Point::new(332237.00,911313.00));
+        cats.push(Point::new(382419.00,110392.00));
+        cats.push(Point::new(598184.00,531473.00));
+        cats.push(Point::new(709303.00,897538.00));
+        cats.push(Point::new(139903.00,592241.00));
+        cats.push(Point::new(850959.00,157920.00));
+        cats.push(Point::new(716139.00,621721.00));
+        cats.push(Point::new(541435.00,206637.00));
+        cats.push(Point::new(371464.00,328177.00));
+        cats.push(Point::new(415895.00,775793.00));
+        cats.push(Point::new(178869.00,370161.00));
+        cats.push(Point::new(900829.00,590250.00));
+        cats.push(Point::new(344915.00,702496.00));
+        cats.push(Point::new(835128.00,212354.00));
+        cats.push(Point::new(206660.00,575002.00));
+
+        let mut fin = vec!();
+        fin.push(Point::new(244654.89,847642.04));
+        fin.push(Point::new(320602.55,161521.85));
+        fin.push(Point::new(612001.26,483041.06));
+        fin.push(Point::new(670929.07,862765.73));
+        fin.push(Point::new(136671.89,558362.82));
+        fin.push(Point::new(852058.45,157685.52));
+        fin.push(Point::new(822688.98,730558.55));
+        fin.push(Point::new(508062.26,176011.77));
+        fin.push(Point::new(400011.48,404475.00));
+        fin.push(Point::new(418183.10,786581.83));
+        fin.push(Point::new(167856.14,347812.72));
+        fin.push(Point::new(858529.97,546434.75));
+        fin.push(Point::new(349034.24,566772.45));
+        fin.push(Point::new(798783.14,321818.38));
+        fin.push(Point::new(283176.86,545552.91));
+
+        (cats, fin)
+    }
+
+    fn point_vec_from_file(file: &File) -> Result<Box<Vec<Point>>, TrainingError> {
+        let mut data = Box::new(Vec::new());
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let buf = match line {
+                Ok(l) => l.into_bytes(),
+                Err(_) => return Err(TrainingError::FileReadFailed),
+            };
+            let val = Point::point_from_vec(&buf)?;
+            data.push(val);
+        }
+        return Ok(data);
+    }
+
+    pub fn test_convergence(world: &SystemCommunicator) {
+        let my_rank = world.rank();
+        let size = world.size();
+        let data_file = match File::open(INPUT_FILE) {
+            Ok(f) => f,
+            Err(_) => {
+                panic!("Test data file not found");
+            },
+        };
+        let data = match point_vec_from_file(&data_file) {
+            Ok(d) => d,
+            Err(_) => panic!("Could not load test data")
+        };
+        let my_data = if my_rank == size - 1 {
+            data[(data.len() / size as usize) * my_rank as usize
+                ..data.len()].to_vec()
+        } else {
+            data[(data.len() / size as usize) * my_rank as usize
+                ..(data.len() / size as usize) * (my_rank + 1) as usize].to_vec()
+        };
+
+        let mut km = MPIKMeans::new(15);
+        let (cats, fin) = get_convergence_sets();
+
+        km.categories = Some(Box::new(cats));
+        match km.lloyds_iteration(&world, &my_data) {
+            Err(_) => panic!("Lloyd's iteration failed"),
+            _ => ()
+        }
+        let finals = km.categories.unwrap_or(Box::new(Vec::new()));
+        assert_eq!(*finals, fin);
     }
 }
