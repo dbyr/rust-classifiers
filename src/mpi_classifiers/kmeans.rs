@@ -418,6 +418,9 @@ pub mod tests {
 
     static INPUT_FILE: &'static str = "./data/easy_clusters_rand";
 
+    // this data was collected from a particular run of
+    // the serial version, so depends on the accuracy of that
+    // version to determine the accuracy of this one
     fn get_convergence_sets() -> (Vec<Point>, Vec<Point>) {
         let mut cats = vec!();
         cats.push(Point::new(332237.00,911313.00));
@@ -502,6 +505,8 @@ pub mod tests {
             _ => ()
         }
         let finals = km.categories.unwrap_or(Box::new(Vec::new()));
+
+        // use the format string so that decimal resolution isn't an issue
         assert_eq!(format!("{:?}", finals), format!("{:?}", fin));
     }
 }
