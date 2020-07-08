@@ -27,7 +27,7 @@ use std::fmt::Debug;
 const ROOT: i32 = 0;
 
 // used to transfer the
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 struct SumCountPair<T: EuclideanDistance> {
     sum: T,
     count: u64
@@ -170,6 +170,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         data: &Vec<T>
     ) -> Result<(), TrainingError> {
         let mut iters = 0;
+        let size = world.size();
         // continue until means no longer update
         while iters < 100 {
 
@@ -178,7 +179,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             let mut local_scs: Vec<SumCountPair<T>> =
                 vec!(SumCountPair::default(); self.k);
             let mut gathered =
-                vec!(SumCountPair::<T>::default(); self.k * self.k);
+                vec!(SumCountPair::<T>::default(); self.k * size as usize);
             let mut global_scs: Vec<SumCountPair<T>> =
                 vec!(SumCountPair::default(); self.k);
             for (i, cat) in cats.iter().enumerate() {
@@ -190,10 +191,10 @@ impl<T> MPIKMeans<T> where T: Default + Clone
                 local_scs.as_slice(),
                 gathered.as_mut_slice()
             );
+            // if world.rank() == ROOT {println!("Gathered = {:?}", gathered);}
             for i in 0..self.k {
-                let base = i * self.k;
-                for j in 0..self.k {
-                    global_scs[i] = global_scs[i].combine(&gathered[base + j]);
+                for j in 0..size as usize {
+                    global_scs[i] = global_scs[i].combine(&gathered[j * self.k + i]);
                 }
             }
 
@@ -435,6 +436,7 @@ pub mod tests {
         cats.push(Point::new(835128.00,212354.00));
         cats.push(Point::new(206660.00,575002.00));
 
+        // rough values
         let mut fin = vec!();
         fin.push(Point::new(244654.89,847642.04));
         fin.push(Point::new(320602.55,161521.85));
@@ -482,12 +484,13 @@ pub mod tests {
             Ok(d) => d,
             Err(_) => panic!("Could not load test data")
         };
+        let portion_size = data.len() / size as usize;
         let my_data = if my_rank == size - 1 {
-            data[(data.len() / size as usize) * my_rank as usize
+            data[portion_size * my_rank as usize
                 ..data.len()].to_vec()
         } else {
-            data[(data.len() / size as usize) * my_rank as usize
-                ..(data.len() / size as usize) * (my_rank + 1) as usize].to_vec()
+            data[portion_size * my_rank as usize
+                ..portion_size * (my_rank + 1) as usize].to_vec()
         };
 
         let mut km = MPIKMeans::new(15);
@@ -499,6 +502,6 @@ pub mod tests {
             _ => ()
         }
         let finals = km.categories.unwrap_or(Box::new(Vec::new()));
-        assert_eq!(*finals, fin);
+        assert_eq!(format!("{:?}", finals), format!("{:?}", fin));
     }
 }
