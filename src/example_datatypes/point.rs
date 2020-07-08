@@ -1,3 +1,5 @@
+extern crate mpi;
+
 use rand::Rng;
 use std::str::from_utf8;
 use f64;
@@ -14,6 +16,9 @@ use std::fmt::{
     Debug,
     Formatter
 };
+
+use mpi::{datatype::UserDatatype, traits::*};
+use std::mem::size_of;
 
 // abomonation required to use datatype with timely
 #[derive(PartialEq, Default, Clone, Abomonation)]
@@ -124,6 +129,28 @@ impl Random for Point {
             x: rng.gen_range(lower.x, upper.x), 
             y: rng.gen_range(lower.y, upper.y)
         }
+    }
+}
+
+// needed for use with mpi in Rust
+unsafe impl Equivalence for Point {
+    type Out = UserDatatype;
+
+    fn equivalent_datatype() -> Self::Out {
+        // provides a layout for MPI to use to represent
+        // the Point datatype
+        // equivalent to MPI_Type_create_struct (open MPI)
+        UserDatatype::structured(
+            // comments display what these arguments transform
+            // to in the aforementioned MPI method
+            2, // count
+            &[1, 1], // array_of_blocklengths
+            &[
+                size_of::<f64>() as mpi::Address,
+                0
+            ], // array_of_displacements
+            &[&f64::equivalent_datatype(), &f64::equivalent_datatype()] // array_of_types
+        )
     }
 }
 

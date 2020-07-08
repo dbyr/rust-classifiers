@@ -14,14 +14,14 @@ use crate::common::{
     ClassificationError
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Initiliser {
     Default,
     PP,
-    Parallel
+    Scalable
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct KMeans<T: EuclideanDistance + PartialEq + Clone> {
     categories: Option<Box<Vec<T>>>,
     k: usize,
@@ -41,8 +41,16 @@ where T: EuclideanDistance + PartialEq + Clone {
     }
 
     // get a kmeans parallel object
-    pub fn new_parallel(k: usize) -> KMeans<T> {
-        KMeans{categories: None, k: k, trainer: Initiliser::Parallel}
+    pub fn new_scalable(k: usize) -> KMeans<T> {
+        KMeans{categories: None, k: k, trainer: Initiliser::Scalable}
+    }
+
+    // returns the points that represent the centroids
+    pub fn categories(&self) -> Result<&Vec<T>, ClassificationError> {
+        match &self.categories {
+            Some(v) => Ok(v.as_ref()),
+            None => Err(ClassificationError::ClassifierNotTrained)
+        }
     }
 
     // private methods for use during training
@@ -52,7 +60,7 @@ where T: EuclideanDistance + PartialEq + Clone {
         match self.trainer {
             Initiliser::Default => self.get_random_centroids(samples),
             Initiliser::PP => self.get_weighted_random_centroids(samples),
-            Initiliser::Parallel => self.get_centoids_by_oversampling(samples)
+            Initiliser::Scalable => self.get_centoids_by_oversampling(samples)
         }
     }
     

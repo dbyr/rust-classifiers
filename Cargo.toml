@@ -6,6 +6,8 @@ edition = "2018"
 
 [dependencies]
 rand = "0.7.3"
+mpi = "0.5"
+mpi-sys = "0.1"
 timely = "*"
 timely_communication = "*"
 abomonation = "*"
