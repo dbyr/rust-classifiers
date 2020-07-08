@@ -7,6 +7,8 @@ mod tests {
     use rust_classifiers::example_datatypes::point::Point;
 
     use rand::Rng;
+    use rand::thread_rng;
+    use rand::seq::SliceRandom;
     // use std::fs::File;
 
     #[test]
@@ -247,6 +249,7 @@ mod tests {
                 )
             )
         }
+        data.shuffle(&mut thread_rng());
         data
     }
 }
