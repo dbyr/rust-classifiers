@@ -79,8 +79,8 @@ mod tests {
     }
 
     #[test]
-    fn test_train_parallel() {
-        let classifier = train_parallel_classifier();
+    fn test_train_scalable() {
+        let classifier = train_scalable_classifier();
         let sample_data = get_generic_data();
 
         assert_eq!(
@@ -161,8 +161,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parallel_classify() {
-        let classifier = train_parallel_classifier();
+    fn test_scalable_classify() {
+        let classifier = train_scalable_classifier();
         let mut sample_data = get_generic_data();
 
         let point1 = Point::new(0.0, 160.0);
@@ -203,8 +203,8 @@ mod tests {
         classifier
     }
 
-    fn train_parallel_classifier() -> KMeans<Point> {
-        let mut classifier = KMeans::new_parallel(3);
+    fn train_scalable_classifier() -> KMeans<Point> {
+        let mut classifier = KMeans::new_scalable(3);
         let data = get_generic_data();
         match classifier.train(&data) {
             Ok(_s) => assert!(true),
@@ -225,8 +225,9 @@ mod tests {
             Point::new(170.0, 0.0)
         );
         // generate lots of data for each well-separated set
+        let mut rand_data = Vec::new();
         for _ in 0..100 {
-            data.push(
+            rand_data.push(
                 Point::new(
                     generator.gen_range(-120.0, -110.0),
                     generator.gen_range(-2.0, 0.0)
@@ -234,7 +235,7 @@ mod tests {
             )
         }
         for _ in 0..100 {
-            data.push(
+            rand_data.push(
                 Point::new(
                     generator.gen_range(0.0, 1.0),
                     generator.gen_range(130.0, 140.0)
@@ -242,14 +243,15 @@ mod tests {
             )
         }
         for _ in 0..100 {
-            data.push(
+            rand_data.push(
                 Point::new(
                     generator.gen_range(160.0, 170.0),
                     generator.gen_range(0.0, 1.0)
                 )
             )
         }
-        data.shuffle(&mut thread_rng());
+        rand_data.shuffle(&mut thread_rng());
+        data.append(&mut rand_data);
         data
     }
 }

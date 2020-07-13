@@ -219,6 +219,27 @@ where T: EuclideanDistance + PartialEq + Clone {
         self.get_weighted_random_centroids(&sampled);
     }
 
+    fn lloyds_iteration(&mut self, data: &Vec<T>) -> Result<(), TrainingError> {
+
+        // until the centroids don't change, keep changing the centroids
+        let mut categories: Vec<usize>;
+        loop {
+
+            // classify the data with the current centroids, then update the centroids
+            match self.categorise_all(data) {
+                Ok(cats) => categories = cats,
+                Err(e) => return Err(e),
+            }
+            match self.update_centroids(data, &categories) {
+                Ok(updated) => {
+                    if !updated {break;}
+                },
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
     fn categorise(&self, datum: &T) -> Result<usize, TrainingError> {
         let mut result = Err(TrainingError::InvalidClassifier);
         let mut distance = f64::MAX;
@@ -283,23 +304,7 @@ where T: EuclideanDistance + PartialEq + Clone {
     fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError> {
         // initialise the centroids randomly, initially
         self.initialise_with_appropriate_method(data);
-
-        // until the centroids don't change, keep changing the centroids
-        let mut categories: Vec<usize>;
-        loop {
-            
-            // classify the data with the current centroids, then update the centroids
-            match self.categorise_all(data) {
-                Ok(cats) => categories = cats,
-                Err(e) => return Err(e),
-            }
-            match self.update_centroids(data, &categories) {
-                Ok(updated) => {
-                    if !updated {break;}
-                },
-                Err(e) => return Err(e),
-            }
-        }
+        self.lloyds_iteration(data)?;
         return Ok(self.categories.as_ref().unwrap().clone().to_vec());
     }
 
