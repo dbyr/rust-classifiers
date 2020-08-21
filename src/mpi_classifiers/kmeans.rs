@@ -10,7 +10,6 @@ use large_int::large_int::LargeInt;
 use std::{
     f64,
     fs::File,
-    collections::HashMap,
     mem::size_of
 };
 use mpi::{
@@ -168,12 +167,11 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         &self,
         data: &Vec<(T, f64)>,
         cat_sums: &mut Vec<SumCountPair<T>>
-    ) -> Result<Vec<usize>, TrainingError> {
-        let mut cats = Vec::new();
+    ) -> Result<(), TrainingError> {
         for (datum, _) in data.iter() {
             cat_sums[self.categorise(datum)?].plus(datum);
         }
-        return Ok(cats);
+        return Ok(());
     }
 
     // perform Lloyd's iteration
