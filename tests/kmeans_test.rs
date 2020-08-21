@@ -186,7 +186,7 @@ mod tests {
     fn train_generic_classifier() -> KMeans<Point> {
         let mut classifier = KMeans::new(3);
         let data = get_generic_data();
-        match classifier.train(&data) {
+        match classifier.train(data) {
             Ok(_s) => assert!(true),
             Err(_e) => assert!(false)
         }
@@ -196,7 +196,7 @@ mod tests {
     fn train_pp_classifier() -> KMeans<Point> {
         let mut classifier = KMeans::new_pp(3);
         let data = get_generic_data();
-        match classifier.train(&data) {
+        match classifier.train(data) {
             Ok(_s) => assert!(true),
             Err(_e) => assert!(false)
         }
@@ -206,7 +206,7 @@ mod tests {
     fn train_scalable_classifier() -> KMeans<Point> {
         let mut classifier = KMeans::new_scalable(3);
         let data = get_generic_data();
-        match classifier.train(&data) {
+        match classifier.train(data) {
             Ok(_s) => assert!(true),
             Err(_e) => assert!(false)
         }

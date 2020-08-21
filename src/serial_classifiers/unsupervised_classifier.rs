@@ -20,7 +20,7 @@ pub trait UnsupervisedClassifier<T> {
     // trains the classifier using "data"
     // data: the data with which to train the classifier
     // return: the categories/centroids that are produced
-    fn train(&mut self, data: &Vec<T>) -> Result<Vec<T>, TrainingError>;
+    fn train(&mut self, data: Vec<T>) -> Result<Vec<T>, TrainingError>;
 
     // trains the classifier using the data in "file"
     // file: the file containing the data with which to train the classifier
