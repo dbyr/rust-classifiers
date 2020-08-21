@@ -24,7 +24,7 @@ pub trait UnsupervisedClassifier<T> {
     fn train(
         &mut self,
         world: &SystemCommunicator,
-        data: &Vec<T>
+        data: Vec<T>
     ) -> Result<Vec<T>, TrainingError>;
 
     // trains the classifier using the data in "file"

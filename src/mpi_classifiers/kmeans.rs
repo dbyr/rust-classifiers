@@ -6,6 +6,7 @@ use crate::common::{
 };
 
 use rand::Rng;
+use large_int::large_int::LargeInt;
 use std::{
     f64,
     fs::File,
@@ -23,6 +24,7 @@ use mpi::{
 use std::borrow::Borrow;
 use std::io::{BufRead, BufReader};
 use std::fmt::Debug;
+use std::io::Write;
 
 const ROOT: i32 = 0;
 
@@ -85,41 +87,48 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     }
 
     fn update_weights(
-        samples: &Vec<T>,
-        prob_list: &mut HashMap<usize, f64>,
+        samples: &mut Vec<(T, f64)>,
         newest_cat: &T
     ) {
         // weight the next set of values
-        for (i, value) in samples.iter().enumerate() {
-            let distance = newest_cat.distance(value);
+        for (i, value) in samples.iter_mut().enumerate() {
+            let distance = newest_cat.distance(&value.0);
 
             // use the closest of the currently selected centroids
-            if let Some(v) = prob_list.get_mut(&i) {
-                if distance < *v {
-                    *v = distance;
-                }
-            } else {
-                prob_list.insert(i, distance);
+            if distance < value.1 {
+                value.1 = distance;
             }
         }
     }
 
-    fn sum_of_weights_squared(prob_list: &HashMap<usize, f64>) -> usize {
+    fn sum_of_weights_squared(prob_list: &Vec<(T, f64)>) -> f64 {
         let mut weight = 0_f64;
         for (_, distance) in prob_list {
-            weight += distance.powi(2);
+            if !distance.is_nan() {
+                weight += distance.powi(2);
+            }
         }
-        weight as usize
+        weight
+    }
+
+    fn sum_of_weights_squared_large(prob_list: &Vec<(T, f64)>) -> LargeInt {
+        let mut weight = LargeInt::new();
+        for (_, distance) in prob_list {
+            if !distance.is_nan() {
+                weight += distance.powi(2).round() as u64;
+            }
+        }
+        weight
     }
 
     // selects the initial point from which distance
     // determines probablity of selecting other points
-    fn select_initial(&mut self, world: &SystemCommunicator, data: &Vec<T>) -> T {
+    fn select_initial(&mut self, world: &SystemCommunicator, data: &Vec<(T, f64)>) -> T {
         
         // each process selects one point at random
         let mut generator = rand::thread_rng();
         let in_range = data.len();
-        let selection = &data[generator.gen_range(0, in_range)];
+        let selection = &data[generator.gen_range(0, in_range)].0;
 
         // then sends it to proc 0 to decide which is the initial
         let (my_rank, size) = get_world_info(world);
@@ -155,10 +164,14 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         return result;
     }
 
-    fn categorise_all(&self, data: &Vec<T>) -> Result<Vec<usize>, TrainingError> {
+    fn sum_categories(
+        &self,
+        data: &Vec<(T, f64)>,
+        cat_sums: &mut Vec<SumCountPair<T>>
+    ) -> Result<Vec<usize>, TrainingError> {
         let mut cats = Vec::new();
-        for datum in data.iter() {
-            cats.push(self.categorise(datum)?);
+        for (datum, _) in data.iter() {
+            cat_sums[self.categorise(datum)?].plus(datum);
         }
         return Ok(cats);
     }
@@ -167,24 +180,21 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     fn lloyds_iteration(
         &mut self,
         world: &SystemCommunicator,
-        data: &Vec<T>
+        data: &Vec<(T, f64)>
     ) -> Result<(), TrainingError> {
         let mut iters = 0;
         let size = world.size();
         // continue until means no longer update
-        while iters < 100 {
+        while iters < 10 {
 
             // calculate local values
-            let cats = self.categorise_all(data)?;
             let mut local_scs: Vec<SumCountPair<T>> =
                 vec!(SumCountPair::default(); self.k);
+            self.sum_categories(data, &mut local_scs)?;
             let mut gathered =
                 vec!(SumCountPair::<T>::default(); self.k * size as usize);
             let mut global_scs: Vec<SumCountPair<T>> =
                 vec!(SumCountPair::default(); self.k);
-            for (i, cat) in cats.iter().enumerate() {
-                local_scs[*cat].plus(&data[i]);
-            }
 
             // combine with other procs into global values
             world.all_gather_into(
@@ -244,7 +254,7 @@ impl<T> MPIKMeans<T> where T: Default + Clone
     }
 
     // initial centroid selection for kmeans++
-    fn get_weighted_random_centroids(&mut self, samples: &Vec<T>) {
+    fn get_weighted_random_centroids(&mut self, samples: &mut Vec<(T, f64)>) {
         // can't do anything if there is no data
         if samples.len() == 0 || samples.len() < self.k {
             return;
@@ -255,32 +265,30 @@ impl<T> MPIKMeans<T> where T: Default + Clone
 
         // select one random value initially
         let mut generator = rand::thread_rng();
-        let mut prob_list = HashMap::<usize, f64>::new();
-        let mut selection: usize = generator.gen_range(0, samples.len());
         let categories = self.categories.as_mut().unwrap();
 
         // continue to select values based on weighted probablity
-        categories.push(samples[selection].clone());
-        for _ in 0..(self.k - 1) {
-            Self::update_weights(samples, &mut prob_list, &samples[selection]);
-            let weight_total = Self::sum_of_weights_squared(&prob_list);
+        categories.push(samples[generator.gen_range(0, samples.len()) as usize].0.clone());
+        for i in 0..(self.k - 1) {
+            Self::update_weights(samples, &categories[i]);
+            let weight_total = Self::sum_of_weights_squared(&samples);
 
             // now select one at random
-            let mut remainder = generator.gen_range(0, weight_total) as f64;
-            for k in prob_list.keys() {
-                remainder -= prob_list[k].powi(2);
+            let mut remainder = generator.gen_range(0, weight_total as usize) as f64;
+            for (val, dist) in samples.iter_mut() {
+                if dist.is_nan() { continue; }
+                remainder -= dist.powi(2);
                 if remainder <= 0.0 {
-                    selection = *k;
+                    *dist = f64::NAN;
+                    categories.push(val.clone());
                     break;
                 }
             }
-            prob_list.remove(&selection);
-            categories.push(samples[selection].clone());
         }
     }
 
     // oversample points to form initial cluster approximation
-    fn oversample_by_weight(&mut self, world: &SystemCommunicator, data: &Vec<T>) {
+    fn oversample_by_weight(&mut self, world: &SystemCommunicator, data: &mut Vec<(T, f64)>) {
         // TODO: figure out how to deal with this in the distributed case
         // can't do anything if there is no data
         // if data.len() == 0 || data.len() < self.k {
@@ -290,36 +298,33 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         // select one random value initially
         let (my_rank, size) = get_world_info(world);
         let mut taken = Vec::new();
-        let mut prob_list = HashMap::<usize, f64>::new();
         let initial = self.select_initial(world, data);
 
         // get initial weight to determine num. iterations
-        Self::update_weights(data, &mut prob_list, &initial);
-        let mut weight_total = Self::sum_of_weights_squared(&prob_list);
-        let mut global_weights = vec!(0; size as usize);
+        Self::update_weights(data, &initial);
+        let mut weight_total = Self::sum_of_weights_squared(data);
+        let mut global_weights = vec!(0.0; size as usize);
         let mut generator = rand::thread_rng();
         world.all_to_all_into(
             vec!(weight_total; size as usize).as_slice(),
             global_weights.as_mut_slice()
         );
         weight_total = global_weights.into_iter().sum();
+        println!("Done selecting initial");
+        std::io::stdout().flush();
 
         // oversample centres (achieve approx. klog(initial_weight))
         for _ in 0..(weight_total as f64).log10() as usize {
             let mut selections = Vec::new();
-            let mut indices = Vec::new();
 
             // sample independantly proportional to distance from a centre
-            for (index, dist) in prob_list.iter() {
+            for (val, dist) in data.iter_mut() {
                 let prob = generator.gen_range(0.0, 1.0);
                 let select = (dist.powi(2) * self.k as f64) / weight_total as f64;
                 if prob < select {
-                    selections.push(data[*index].clone());
-                    indices.push(*index);
+                    selections.push(val.clone());
+                    *dist = f64::NAN; // exclude from sum of weights
                 }
-            }
-            for index in indices {
-                prob_list.remove(&index);
             }
 
             let mut global_selections = Self::send_selected(
@@ -331,7 +336,6 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             for selection in global_selections.iter() {
                 Self::update_weights(
                     data,
-                    &mut prob_list,
                     &selection
                 )
             }
@@ -340,8 +344,8 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             if my_rank == ROOT {
                 taken.append(&mut global_selections);
             }
-            weight_total = Self::sum_of_weights_squared(&prob_list);
-            global_weights = vec!(0; size as usize);
+            weight_total = Self::sum_of_weights_squared(data);
+            global_weights = vec!(0.0; size as usize);
             world.all_to_all_into(
                 vec!(weight_total; size as usize).as_slice(),
                 global_weights.as_mut_slice()
@@ -353,8 +357,9 @@ impl<T> MPIKMeans<T> where T: Default + Clone
         // the original paper suggests doing this portion
         // of the computation on a single machine
         let root_proc = world.process_at_rank(ROOT);
+        let mut weighted_taken = taken.into_iter().map(|v| (v, f64::MAX)).collect();
         if my_rank == ROOT {
-            self.get_weighted_random_centroids(&taken);
+            self.get_weighted_random_centroids(&mut weighted_taken);
         } else {
             self.categories = Some(Box::new(vec!(T::default(); self.k)));
         }
@@ -367,10 +372,15 @@ where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
     fn train(
         &mut self,
         world: &SystemCommunicator,
-        data: &Vec<T>
+        pre_data: Vec<T>
     ) -> Result<Vec<T>, TrainingError> {
-        self.oversample_by_weight(world, data);
-        self.lloyds_iteration(world, data)?;
+        let mut data: Vec<(T, f64)> = pre_data.into_iter().map(|v| (v, f64::MAX)).collect();
+        self.oversample_by_weight(world, &mut data);
+        println!("Done sampling");
+        std::io::stdout().flush();
+        self.lloyds_iteration(world, &mut data)?;
+        println!("Done lloyds iteration");
+        std::io::stdout().flush();
         Ok(*self.categories.clone().unwrap())
     }
 
@@ -390,7 +400,9 @@ where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
             let val = parser(&buf)?;
             data.push(val);
         }
-        self.train(world, &data)
+        println!("Done reading file");
+        std::io::stdout().flush();
+        self.train(world, data)
     }
 
     fn classify(&self, datum: &T) -> Result<usize, ClassificationError> {
@@ -415,6 +427,7 @@ pub mod tests {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use crate::common::TrainingError;
+    use std::f64;
 
     static INPUT_FILE: &'static str = "./data/easy_clusters_rand";
 
@@ -483,10 +496,11 @@ pub mod tests {
                 panic!("Test data file not found");
             },
         };
-        let data = match point_vec_from_file(&data_file) {
+        let just_data = match point_vec_from_file(&data_file) {
             Ok(d) => d,
             Err(_) => panic!("Could not load test data")
         };
+        let data: Vec<(Point, f64)> = just_data.into_iter().map(|v| (v, f64::MAX)).collect();
         let portion_size = data.len() / size as usize;
         let my_data = if my_rank == size - 1 {
             data[portion_size * my_rank as usize
