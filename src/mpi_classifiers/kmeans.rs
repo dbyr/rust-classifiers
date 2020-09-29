@@ -308,7 +308,6 @@ impl<T> MPIKMeans<T> where T: Default + Clone
             global_weights.as_mut_slice()
         );
         weight_total = global_weights.into_iter().sum();
-        println!("Done selecting initial");
         std::io::stdout().flush();
 
         // oversample centres (achieve approx. klog(initial_weight))
@@ -374,10 +373,8 @@ where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
     ) -> Result<Vec<T>, TrainingError> {
         let mut data: Vec<(T, f64)> = pre_data.into_iter().map(|v| (v, f64::MAX)).collect();
         self.oversample_by_weight(world, &mut data);
-        println!("Done sampling");
         std::io::stdout().flush();
         self.lloyds_iteration(world, &mut data)?;
-        println!("Done lloyds iteration");
         std::io::stdout().flush();
         Ok(*self.categories.clone().unwrap())
     }
@@ -398,7 +395,6 @@ where T: Clone + EuclideanDistance + Default + PartialEq + Equivalence + Debug {
             let val = parser(&buf)?;
             data.push(val);
         }
-        println!("Done reading file");
         std::io::stdout().flush();
         self.train(world, data)
     }
